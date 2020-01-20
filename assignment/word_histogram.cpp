@@ -17,14 +17,17 @@ int main() {
     // first, lets downcase the string
     std::transform(word.begin(), word.end(), word.begin(), ::tolower);
 
-    // next, lets trim off any non-letter chars
-    regex not_word_chars("[^\\w]");
+    // next, lets trim off
+    // - any non-letter chars
+    // - any underscores
+    // - any numbers
+    regex not_word_chars("[\\W_\\d]");
     word = std::regex_replace(word, not_word_chars, "");
 
     // create-or-increment that pair, use the word as the hash-key
     std::unordered_map<std::string,unsigned>::const_iterator found = dictionary.find(word);
     if(found == dictionary.end()) {
-      //cout << "not found, time to create" << "\n";
+      // word-count pair not found. create it
       if(word != "") { // string could be empty after pre-processing
         dictionary.insert(
           std::make_pair<std::string, unsigned>(word, 1)
@@ -32,7 +35,7 @@ int main() {
       }
 
     } else {
-      // found it, increment it
+      // word-count pair exists. increment it
       // why doesn't below line work:
       // found->second += 1; // cannot assign to return value because function "operator->" returns a const value
 
