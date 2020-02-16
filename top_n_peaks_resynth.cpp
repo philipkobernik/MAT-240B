@@ -23,7 +23,9 @@ bool peaksComparator(int a, int b) {
   return log(stft.bin(a).mag()) > log(stft.bin(b).mag());
 }
 
-bool binGreaterThanNeighbors(int binIndex, int peakNeighbors) {
+bool binGreaterThanNeighbors(int binIndex, int peakNeighbors, int numBins) {
+	  if(binIndex < peakNeighbors || binIndex >= numBins-peakNeighbors) return false;
+
           float m = log(stft.bin(binIndex).mag());
 	  for(int i = 1; i <= peakNeighbors; i++) {
 		if(m <= log(stft.bin(binIndex - i).mag())) return false;
@@ -86,19 +88,16 @@ struct MyApp : App {
       //float f = io.in(0);
 
 
-      std::set<int> peaks;
+      //std::set<int> peaks;
 
       //std::array<int, 30> peaks;
       //peaks.fill(0);
       	
       if (stft(f)) {
     	numBins = stft.numBins();
-	//cout << "stft frame ready!" << endl;
-        //
-        // search for the "hottest" bins
+	peaksVector.clear();
 
         for (int i = 0; i < numBins; i++) {
-          //
           // calculate statistics on the magnitude of the bin
           float m = log(stft.bin(i).mag());
           if (m > maximum) maximum = m;
@@ -107,18 +106,16 @@ struct MyApp : App {
 
           // search for peaks
 	  int peakNeighbors = peakNeighborsParam.get();
-	  if(i < peakNeighbors || i >= numBins-peakNeighbors) continue;
 
-          if (binGreaterThanNeighbors(i, peakNeighbors)) {
-		  //cout << "found peak!" << endl;
-		  peaks.insert(i);
+          if (binGreaterThanNeighbors(i, peakNeighbors, numBins)) {
+		  //peaks.insert(i);
+		  peaksVector.push_back(i);
 	    }
           }
-	  // make adjustments!
-    // copy peaks to vector
-    std::vector<int> newPeaksVector(peaks.begin(), peaks.end());
-    peaksVector = newPeaksVector;
-    //std::copy(peaks.begin(), peaks.end(), std::back_inserter(peaksVector));
+    //std::vector<int> newPeaksVector(peaks.begin(), peaks.end());
+
+    //peaksVector = newPeaksVector;
+    //
     // sort peaks
     std::sort(peaksVector.begin(), peaksVector.end(), peaksComparator);
 
