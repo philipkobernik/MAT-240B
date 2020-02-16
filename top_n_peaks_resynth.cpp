@@ -42,11 +42,11 @@ struct MyApp : App {
   gam::Sine<> osc;
   gam::OnePole<> frequencyFilter, rateFilter;
   Parameter rate{"Speed", "", 0.5, "", 0.0, 2.0};
-  ParameterInt numPeaksParam{"/numPeaksParam", "", 3, "", 1, 20};
+  ParameterInt numPeaksParam{"/numPeaksParam", "", 8, "", 1, 20};
   ParameterInt peakNeighborsParam{"/peakNeighborsParam", "", 4, "", 1, 20};
   ParameterBool drawParam{"Pause", "", 1.0};
+  Parameter zoomXParam{"Zoom X", "", 1.0, "", 0.0, 6.0};
   ControlGUI gui;
-  //std::set<int> first;
 
   Mesh spectrum{Mesh::LINE_STRIP};
   Mesh resynth_spectrum{Mesh::LINE_STRIP};
@@ -59,6 +59,7 @@ struct MyApp : App {
     gui << rate;
     gui << numPeaksParam;
     gui << peakNeighborsParam;
+    gui << zoomXParam;
     gui << drawParam;
     gui.init();
     navControl().useMouse(false);
@@ -77,7 +78,7 @@ struct MyApp : App {
     }
 
     line.vertex(0, 1);
-    line.vertex(0, -1);
+    line.vertex(0, 0);
   }
 
   void onSound(AudioIOData& io) override {
@@ -87,12 +88,6 @@ struct MyApp : App {
       float f = player();
       //float f = io.in(0);
 
-
-      //std::set<int> peaks;
-
-      //std::array<int, 30> peaks;
-      //peaks.fill(0);
-      	
       if (stft(f)) {
     	numBins = stft.numBins();
 	peaksVector.clear();
@@ -108,16 +103,12 @@ struct MyApp : App {
 	  int peakNeighbors = peakNeighborsParam.get();
 
           if (binGreaterThanNeighbors(i, peakNeighbors, numBins)) {
-		  //peaks.insert(i);
 		  peaksVector.push_back(i);
 	    }
           }
-    //std::vector<int> newPeaksVector(peaks.begin(), peaks.end());
 
-    //peaksVector = newPeaksVector;
-    //
-    // sort peaks
-    std::sort(peaksVector.begin(), peaksVector.end(), peaksComparator);
+    	// sort peaks
+    	std::sort(peaksVector.begin(), peaksVector.end(), peaksComparator);
 
     	  
 	  for(int i = 0; i < numBins; i++) {
@@ -132,25 +123,10 @@ struct MyApp : App {
 
         }
 
-    float resynth = 0.0f;
-
-    if(false) { //peaksVector.size() > 0) {
-      // why doesn't this work?
-      // additive synthesis approach
-      cout << "resynth: ";
-      for(int i = 0; i < numPeaks; i++) {
-        hz = audioIO().framesPerSecond() / 2.0f * peaksVector[i] / numBins;
-	cout << hz << ", ";
-	osc.freq(frequencyFilter(hz));
-	resynth += osc();
-      }
-      cout << endl;
-    }
-
-
     float resynth_stft = stft();
 
       // feed resynth to the 2nd stft
+      // to visualize spectra
       if (re_stft(resynth_stft)) {
         int reNumBins = re_stft.numBins();
         for (int i = 0; i < reNumBins; i++) {
@@ -177,23 +153,37 @@ struct MyApp : App {
 
   void onDraw(Graphics& g) override {
     if (drawParam == 1.0f) {
-	    g.clear(0.3);
+	    g.clear(0.0);
     g.camera(Viewpoint::IDENTITY);  // Ortho [-1:1] x [-1:1]
-    g.color(0, 1, 0);
+    g.pushMatrix();
+    g.color(1, 1, 1);
+    //g.translate(-1, 0, 0);
+    g.scale(zoomXParam.get(), 1, 1);
+    g.translate(
+		    (zoomXParam.get()*2.0 - 2.0)/
+		    	(zoomXParam.get()*2.0),
+		    0,
+		    0
+		);
     g.draw(spectrum);
-    g.color(0, 0, 1);
+    g.color(0.1, 1, 0.1);
     g.draw(resynth_spectrum);
-    g.color(1, 0, 0);
+    g.color(1, 1, 1);
 
     if(peaksVector.size() > 0) {
       for(int i = 0; i < numPeaks; i++) {
         hz = audioIO().framesPerSecond() / 2.0f * peaksVector[i] / numBins;
 	g.pushMatrix();
-    	g.translate(diy::map(hz, 0, audioIO().framesPerSecond() / 2, -1, 1), 0, 0);
+    	g.translate(
+		diy::map(hz, 0, audioIO().framesPerSecond() / 2, -1, 1),
+		0,
+		0
+	);
     	g.draw(line);
 	g.popMatrix();
       }
     }
+    g.popMatrix();
 
     }
     gui.draw(g);
