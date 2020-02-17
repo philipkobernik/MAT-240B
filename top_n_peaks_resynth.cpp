@@ -41,10 +41,11 @@ struct MyApp : App {
   int numPeaks;
   gam::Sine<> osc;
   gam::OnePole<> frequencyFilter, rateFilter;
-  Parameter rate{"Speed", "", 0.5, "", 0.0, 2.0};
-  ParameterInt numPeaksParam{"/numPeaksParam", "", 8, "", 1, 20};
-  ParameterInt peakNeighborsParam{"/peakNeighborsParam", "", 4, "", 1, 20};
-  ParameterBool drawParam{"Pause", "", 1.0};
+  Parameter rate{"Playback Speed", "", 0.5, "", 0.0, 2.0};
+  ParameterInt numPeaksParam{"Top N Peaks", "", 8, "", 1, 50};
+  ParameterInt peakNeighborsParam{"Compare +/- Neighboring Bins", "", 20, "", 1, 50};
+  ParameterBool freezeParam{"Freeze", "", 0.0};
+  ParameterBool sourceFileParam{"Sound File Input", "", 1};
   Parameter zoomXParam{"Zoom X", "", 1.0, "", 0.0, 6.0};
   ControlGUI gui;
 
@@ -60,7 +61,8 @@ struct MyApp : App {
     gui << numPeaksParam;
     gui << peakNeighborsParam;
     gui << zoomXParam;
-    gui << drawParam;
+    gui << sourceFileParam;
+    gui << freezeParam;
     gui.init();
     navControl().useMouse(false);
 
@@ -85,8 +87,7 @@ struct MyApp : App {
     while (io()) {
       player.rate(rateFilter(rate.get()));
       numPeaks = numPeaksParam.get();
-      float f = player();
-      //float f = io.in(0);
+      float f = sourceFileParam ? player() : io.in(0);
 
       if (stft(f)) {
     	numBins = stft.numBins();
@@ -140,9 +141,8 @@ struct MyApp : App {
 
       }
 
-      io.out(0) = resynth_stft * 1.1;
-      //io.out(1) = 0.0f;
-      io.out(1) = player() * 0.1;
+      io.out(0) = sourceFileParam * resynth_stft * 1.1;
+      io.out(1) = sourceFileParam * player() * 0.1;
     }
   }
 
@@ -152,7 +152,7 @@ struct MyApp : App {
   }
 
   void onDraw(Graphics& g) override {
-    if (drawParam == 1.0f) {
+    if (freezeParam == 0.0f) {
 	    g.clear(0.0);
     g.camera(Viewpoint::IDENTITY);  // Ortho [-1:1] x [-1:1]
     g.pushMatrix();
