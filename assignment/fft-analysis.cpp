@@ -36,23 +36,57 @@ vector<float> output(fftSize);
 
 audiofft::AudioFFT fft;
 
+float bin_to_freq(int bin) {
+				return bin * (sample_rate / fftSize)
+								+
+								(sample_rate/fftSize)/2.0;
+}
+
 string serialize_top_n_peaks(vector<int> peaks, int n) {
 	string result = "";
 	for (int i = 0; i < n; i++) {
-					result += peaks[i] / (fftSize/2) * sample_rate;
-					result += ":";
-					result += log(abs(re[peaks[i]]));
-					result += " ";
+		result.append(
+				 to_string(bin_to_freq(peaks[i]))
+				);
+		result.append(":");
+		result.append(to_string(log(abs(re[peaks[i]]))));
+		result.append(" ");
 	}
 
 	return result;
 }
 
+float spectral_centroid(vector<int> peaks) {
+				float sumFreqMag = 0;
+				float sumMag = 0;
+				float mag = 0;
+				for(int i = 0; i<peaks.size(); i++) {
+								mag = log(abs(re[peaks[i]]));
+								sumFreqMag += bin_to_freq(peaks[i]) * mag;
+								sumMag += mag;
+				}
+
+				return sumFreqMag / sumMag;
+}
+
+float rms(vector<int> peaks) {
+				float sumMag = 0;
+				float mag = 0;
+				for(int i = 0; i<peaks.size(); i++) {
+								// unclear if this should take log of the absolute magnitude
+								mag = pow(abs(re[peaks[i]]), 2);
+								sumMag += mag;
+				}
+				return sqrt(sumMag*2);
+}
+
 bool peaksComparator2(int a, int b) {
+  // for the AudioFFT implementation
 	return log(abs(re[a])) > log(abs(re[b]));
 }
 
 bool isPeak(int binIndex, int peakNeighbors, int numBins) {
+  // for AudioFFT implementation
 	if (binIndex < peakNeighbors || binIndex >= numBins - peakNeighbors)
 		return false;
 
@@ -65,10 +99,12 @@ bool isPeak(int binIndex, int peakNeighbors, int numBins) {
 }
 
 bool peaksComparator(int a, int b) {
+  // for Gamma implementation
 	return log(stft.bin(a).mag()) > log(stft.bin(b).mag());
 }
 
 bool binGreaterThanNeighbors(int binIndex, int peakNeighbors, int numBins) {
+  // for Gamma implementation
 	if (binIndex < peakNeighbors || binIndex >= numBins - peakNeighbors)
 		return false;
 
@@ -87,6 +123,7 @@ struct MyApp : App {
 	int numBins;
 	int numPeaks;
 	int sampleIndex;
+	int crossings_count;
 	gam::Sine<> osc;
 	gam::OnePole<> frequencyFilter, rateFilter;
 	Parameter rate{"Playback Speed", "", 0.5, "", 0.0, 2.0};
@@ -192,7 +229,10 @@ struct MyApp : App {
 				}
 			}
 
+			if(input[sampleIndex-1] < 0.0 && sample > 0.0) crossings_count++;
+
 			input[sampleIndex] = sample;
+
 			sampleIndex++;
 
 			// forward fft
@@ -218,9 +258,20 @@ struct MyApp : App {
 
 				std::sort(peaksVector.begin(),
 					  peaksVector.end(), peaksComparator2);
+
+				cout << player.pos() << ", ";
+
+				cout << spectral_centroid(peaksVector) << ", ";
+
+				cout << rms(peaksVector) << ", ";
+
+				cout << to_string(crossings_count) << ", ";
+
 				cout << serialize_top_n_peaks(
 					    peaksVector, numPeaksParam.get())
 				     << endl;
+
+				crossings_count = 0;
 			}
 
 			io.out(0) = sourceFileParam * player() * 0.2;
