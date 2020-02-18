@@ -37,17 +37,13 @@ vector<float> output(fftSize);
 audiofft::AudioFFT fft;
 
 float bin_to_freq(int bin) {
-				return bin * (sample_rate / fftSize)
-								+
-								(sample_rate/fftSize)/2.0;
+	return bin * (sample_rate / fftSize) + (sample_rate / fftSize) / 2.0;
 }
 
 string serialize_top_n_peaks(vector<int> peaks, int n) {
 	string result = "";
 	for (int i = 0; i < n; i++) {
-		result.append(
-				 to_string(bin_to_freq(peaks[i]))
-				);
+		result.append(to_string(bin_to_freq(peaks[i])));
 		result.append(":");
 		result.append(to_string(log(abs(re[peaks[i]]))));
 		result.append(" ");
@@ -57,36 +53,36 @@ string serialize_top_n_peaks(vector<int> peaks, int n) {
 }
 
 float spectral_centroid(vector<int> peaks) {
-				float sumFreqMag = 0;
-				float sumMag = 0;
-				float mag = 0;
-				for(int i = 0; i<peaks.size(); i++) {
-								mag = log(abs(re[peaks[i]]));
-								sumFreqMag += bin_to_freq(peaks[i]) * mag;
-								sumMag += mag;
-				}
+	float sumFreqMag = 0;
+	float sumMag = 0;
+	float mag = 0;
+	for (int i = 0; i < peaks.size(); i++) {
+		mag = log(abs(re[peaks[i]]));
+		sumFreqMag += bin_to_freq(peaks[i]) * mag;
+		sumMag += mag;
+	}
 
-				return sumFreqMag / sumMag;
+	return sumFreqMag / sumMag;
 }
 
 float rms(vector<int> peaks) {
-				float sumMag = 0;
-				float mag = 0;
-				for(int i = 0; i<peaks.size(); i++) {
-								// unclear if this should take log of the absolute magnitude
-								mag = pow(abs(re[peaks[i]]), 2);
-								sumMag += mag;
-				}
-				return sqrt(sumMag*2);
+	float sumMag = 0;
+	float mag = 0;
+	for (int i = 0; i < peaks.size(); i++) {
+		// unclear if this should take log of the absolute magnitude
+		mag = pow(abs(re[peaks[i]]), 2);
+		sumMag += mag;
+	}
+	return sqrt(sumMag * 2);
 }
 
 bool peaksComparator2(int a, int b) {
-  // for the AudioFFT implementation
+	// for the AudioFFT implementation
 	return log(abs(re[a])) > log(abs(re[b]));
 }
 
 bool isPeak(int binIndex, int peakNeighbors, int numBins) {
-  // for AudioFFT implementation
+	// for AudioFFT implementation
 	if (binIndex < peakNeighbors || binIndex >= numBins - peakNeighbors)
 		return false;
 
@@ -99,12 +95,12 @@ bool isPeak(int binIndex, int peakNeighbors, int numBins) {
 }
 
 bool peaksComparator(int a, int b) {
-  // for Gamma implementation
+	// for Gamma implementation
 	return log(stft.bin(a).mag()) > log(stft.bin(b).mag());
 }
 
 bool binGreaterThanNeighbors(int binIndex, int peakNeighbors, int numBins) {
-  // for Gamma implementation
+	// for Gamma implementation
 	if (binIndex < peakNeighbors || binIndex >= numBins - peakNeighbors)
 		return false;
 
@@ -229,7 +225,8 @@ struct MyApp : App {
 				}
 			}
 
-			if(input[sampleIndex-1] < 0.0 && sample > 0.0) crossings_count++;
+			if (input[sampleIndex - 1] < 0.0 && sample > 0.0)
+				crossings_count++;
 
 			input[sampleIndex] = sample;
 
