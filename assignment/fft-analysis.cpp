@@ -262,7 +262,8 @@ struct MyApp : App {
 
 				cout << rms(peaksVector) << ", ";
 
-				cout << to_string(crossings_count) << ", ";
+				float zcr = crossings_count * (audioIO().framesPerSecond() / frameSize); 
+				cout << to_string(zcr) << ", ";
 
 				cout << serialize_top_n_peaks(
 					    peaksVector, numPeaksParam.get())
