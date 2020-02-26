@@ -16,6 +16,8 @@ using namespace std;
 #include <vector>
 
 #include "functions.h"
+#include "parse-csv.h"
+
 gam::STFT stft(4096, 4096 / 4, 16384, gam::HAMMING);
 gam::STFT re_stft(4096, 4096 / 4, 16384, gam::HAMMING);
 gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop> player;
@@ -43,10 +45,19 @@ bool binGreaterThanNeighbors(int binIndex, int peakNeighbors, int numBins) {
 	return true;
 }
 
+struct CorpusFile {
+	string filePath;
+	int startFrame;
+	int lengthInFrames;
+};
+
 struct MyApp : App {
 	MyKNN myknn;
+  arma::mat dataset;
+  arma::mat normDataset;
 	arma::mat distances;
 	arma::Mat<size_t> neighbors;
+	vector<CorpusFile> corpus;
 
 	float hz;
 	std::vector<int> peaksVector;
@@ -97,22 +108,23 @@ struct MyApp : App {
 		line.vertex(0, 0);
 
 		// begin MLPACK
-		arma::mat dataset;
-		mlpack::data::Load("audio/20140808 211213.wav.csv", dataset,
+		mlpack::data::Load("../mega.meta.csv", dataset,
 				   arma::csv_ascii);
+		normDataset = arma::normalise(dataset);
 
-		std::cout << dataset.n_rows << " rows : " << dataset.n_cols
-			  << std::endl;
-		// make up some data not in the corpus above
-		//
-		// arma::mat qu
+		std::ifstream file("../fileEntries.csv");
+		CSVRow row;
+		while (file >> row) {
+			CorpusFile f{row[0], std::stoi(row[1]),
+				     std::stoi(row[2])};
+			corpus.push_back(f);
+			std::cout << "row[0](" << row[0] << ")\n";
+		}
+		std::cout << "✅ Corpus file list loaded" << std::endl;
 
-		// empty; filled in by the search
-		//
-
-		// execute the search
-		//
-		myknn.Train(dataset);
+		// tell our NeighborSearch object (knn) to use
+		// the dataset
+		myknn.Train(normDataset);
 		std::cout << "✅ Dataset loaded" << std::endl;
 	}
 
@@ -186,21 +198,38 @@ struct MyApp : App {
 	}
 
 	bool onKeyDown(const Keyboard& k) override {
-		std::cout << "on keyboard! " << k.key() << std::endl;
+		// std::cout << "on keyboard! " << k.key() << std::endl;
 		minimum = std::numeric_limits<float>::max();
 		maximum = -std::numeric_limits<float>::max();
-		arma::mat query(4, 1, arma::fill::zeros);
-		query.fill(k.key()-48);
-		//arma::mat query(10, 1, arma::fill::randu);
-		std::cout << query.n_rows << " rows : " << query.n_cols
-			  << std::endl;
-		//myknn.Search(query, 3, neighbors, distances);
-		myknn.Search(3, neighbors, distances);
+		arma::mat query(4, 1, arma::fill::randu);
+		std::cout << query(0, 0) << ", " << query(1, 0) << ", "
+			  << query(2, 0) << ", " << query(3, 0) << endl;
+
+		// query.fill((float)(k.key()-48)/10.0f);
+		// arma::mat query(10, 1, arma::fill::randu);
+		// std::cout << query.n_rows << " rows : " << query.n_cols
+		//<< std::endl;
+		 myknn.Search(query, 3, neighbors, distances);
+		//myknn.Search(10, neighbors, distances);
 
 		for (size_t i = 0; i < neighbors.n_elem; ++i) {
-			std::cout << neighbors[i] << " " << distances[i]
-				  << std::endl;
+			int lineIndex = neighbors[i];
+			string fileName;
+			int sampleLocation;
+			for (size_t j = 0; j < corpus.size(); j++) {
+				if (lineIndex >= corpus[j].startFrame &&
+				    lineIndex <
+					lineIndex + corpus[j].lengthInFrames) {
+				  fileName = corpus[j].filePath;
+				  sampleLocation = dataset(0, lineIndex);
+				}
+			}
+			std::cout << "#" << i << ": " << neighbors[i] << " "
+				  << fileName << ", " << sampleLocation << std::endl;
 		}
+
+		neighbors.clear();
+		distances.clear();
 	}
 
 	void onDraw(Graphics& g) override {
