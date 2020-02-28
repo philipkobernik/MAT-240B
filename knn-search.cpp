@@ -1,6 +1,7 @@
 #include "Gamma/Filter.h"
 #include "Gamma/Oscillator.h"
 #include "Gamma/SamplePlayer.h"
+#include "Gamma/SoundFile.h"
 #include "al/app/al_App.hpp"
 #include "al/ui/al_ControlGUI.hpp"  // gui.draw(g)
 using namespace al;
@@ -18,6 +19,8 @@ using namespace std;
 #include "parse-csv.h"
 
 gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop> player;
+typedef gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop>
+    samplePlayer;
 
 typedef mlpack::neighbor::NeighborSearch<   //
     mlpack::neighbor::NearestNeighborSort,  //
@@ -30,6 +33,7 @@ struct CorpusFile {
 	string filePath;
 	int startFrame;
 	int lengthInFrames;
+	samplePlayer * sPlayer; // gam::SoundFile soundFile;
 };
 
 struct MyApp : App {
@@ -41,6 +45,7 @@ struct MyApp : App {
 	arma::Mat<size_t> neighbors;
 	vector<CorpusFile> corpus;
 	bool fileLoaded = false;
+  samplePlayer * mainPlayer;
 
 	float hz;
 	gam::Sine<> osc;
@@ -91,12 +96,27 @@ struct MyApp : App {
 		std::ifstream file("../fileEntries.csv");
 		CSVRow row;
 		while (file >> row) {
-			CorpusFile f{row[0], std::stoi(row[1]),
-				     std::stoi(row[2])};
-			corpus.push_back(f);
-			std::cout << "row[0](" << row[0] << ")\n";
-		}
-		std::cout << "✅ Corpus file list loaded" << std::endl;
+			// gam::SoundFile sf(row[0]);
+			//;
+			// sf.openRead();
+			//samplePlayer sp;
+      samplePlayer * sp;
+      sp = new samplePlayer(); // make a new thing on the heap
+			sp->load(row[0].c_str()); // now low the file
+
+			CorpusFile f {
+				row[0],
+				std::stoi(row[1]),
+				std::stoi(row[2]),
+				sp // address of the thing on the stack
+			};
+			std::cout << '.';
+			corpus.push_back(f); // vector that is shared between threads
+			mainPlayer = sp;
+		} // but here......
+		// once you leave the scope, the sp (sample player) gets deleted...
+		// 
+		std::cout << std::endl << "✅ Corpus file list loaded" << std::endl;
 
 		// tell our NeighborSearch object (knn) to use
 		// the dataset
@@ -106,8 +126,8 @@ struct MyApp : App {
 
 	void onSound(AudioIOData& io) override {
 		while (io()) {
-			float out = fileLoaded ? player() : 0.0;
-			io.out(0) = io.out(1) = out;
+			//float out = fileLoaded ? player() : 0.0;
+			io.out(0) = io.out(1) = mainPlayer->operator()();
 		}
 	}
 
@@ -133,6 +153,7 @@ struct MyApp : App {
 					lineIndex + corpus[j].lengthInFrames) {
 					fileName = corpus[j].filePath;
 					sampleLocation = dataset(0, lineIndex);
+					mainPlayer = corpus[j].sPlayer;
 				}
 			}
 			std::cout << "#" << i << ": " << neighbors[i] << " "
@@ -142,15 +163,16 @@ struct MyApp : App {
 			const char* fileNameCharStar = fileName.c_str();
 			fileLoaded = false;
 
-			std::cout << "loading file...." << std::endl;
+			std::cout << "playing...." << std::endl;
+			mainPlayer->pos((double)sampleLocation);
 
-			fileLoaded = player.load(fileNameCharStar);
+			//fileLoaded = player.load(fileNameCharStar);
 			// std::cout << player.frames() << "<-- how many samples
 			// this file has" << std::endl; std::cout <<
 			// sampleLocation << "<-- sample-index we're shooting
 			// for" << std::endl;
 
-			player.pos((double)sampleLocation);
+			//player.pos((double)sampleLocation);
 			// tell the audio thread what to play
 		}
 
@@ -159,7 +181,7 @@ struct MyApp : App {
 	}
 
 	void onDraw(Graphics& g) override {
-    g.clear(0.0);
+		g.clear(0.0);
 		gui.draw(g);
 	}
 };
