@@ -59,6 +59,7 @@ struct MyApp : App {
 	arma::mat distances;
 	arma::Mat<size_t> neighbors;
 	vector<CorpusFile> corpus;
+	bool fileLoaded = false;
 
 	float hz;
 	std::vector<int> peaksVector;
@@ -98,7 +99,9 @@ struct MyApp : App {
 		rateFilter.freq(25);
 
 		gam::sampleRate(audioIO().framesPerSecond());
-		player.load("../philip_voice2.wav");
+		if(player.load("../philip_voice2.wav")) {
+						fileLoaded = true;
+		}
 
 		numBins = stft.numBins();
 
@@ -114,8 +117,6 @@ struct MyApp : App {
 		mlpack::data::Load("../mega.meta.csv", dataset, arma::csv_ascii);
 		mlpack::data::Load("../mega.meta.no.index.csv", datasetNoIndex, arma::csv_ascii);
     std::cout << datasetNoIndex.n_rows << " rows : " << datasetNoIndex.n_cols << endl;
-
-		std::cout << "✅ Corpus file list loaded" << std::endl;
 
 		normDatasetNoIndex = arma::normalise(datasetNoIndex);
 
@@ -138,9 +139,8 @@ struct MyApp : App {
 	void onSound(AudioIOData& io) override {
 		while (io()) {
 
-      
-
-			io.out(0) = io.out(1) = player();
+      float out = fileLoaded ? player() : 0.0;
+			io.out(0) = io.out(1) = out;
 		}
 	}
 
@@ -172,10 +172,13 @@ struct MyApp : App {
 				  << fileName << ", " << sampleLocation << std::endl;
 			// open audio file, play samples
 			const char * fileNameCharStar = fileName.c_str();
+			fileLoaded = false;
 			std::cout << "loading...." << std::endl;
-      player.load(fileNameCharStar);
-			std::cout << player.frames() << "<-- how many samples this file has" << std::endl;
-			std::cout << sampleLocation << "<-- sample-index we're shooting for" << std::endl;
+      if(player.load(fileNameCharStar)) {
+							fileLoaded = true;
+			}
+			//std::cout << player.frames() << "<-- how many samples this file has" << std::endl;
+			//std::cout << sampleLocation << "<-- sample-index we're shooting for" << std::endl;
 
 			player.pos((double)sampleLocation);
 			// tell the audio thread what to play
