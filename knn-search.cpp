@@ -1,4 +1,3 @@
-#include "Gamma/DFT.h"	// gam::STFT
 #include "Gamma/Filter.h"
 #include "Gamma/Oscillator.h"
 #include "Gamma/SamplePlayer.h"
@@ -18,8 +17,6 @@ using namespace std;
 #include "functions.h"
 #include "parse-csv.h"
 
-gam::STFT stft(4096, 4096 / 4, 16384, gam::HAMMING);
-gam::STFT re_stft(4096, 4096 / 4, 16384, gam::HAMMING);
 gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop> player;
 
 typedef mlpack::neighbor::NeighborSearch<   //
@@ -29,22 +26,6 @@ typedef mlpack::neighbor::NeighborSearch<   //
     mlpack::tree::BallTree>		    //
     MyKNN;
 
-bool peaksComparator(int a, int b) {
-	return log(stft.bin(a).mag()) > log(stft.bin(b).mag());
-}
-
-bool binGreaterThanNeighbors(int binIndex, int peakNeighbors, int numBins) {
-	if (binIndex < peakNeighbors || binIndex >= numBins - peakNeighbors)
-		return false;
-
-	float m = log(stft.bin(binIndex).mag());
-	for (int i = 1; i <= peakNeighbors; i++) {
-		if (m <= log(stft.bin(binIndex - i).mag())) return false;
-		if (m <= log(stft.bin(binIndex + i).mag())) return false;
-	}
-	return true;
-}
-
 struct CorpusFile {
 	string filePath;
 	int startFrame;
@@ -53,18 +34,15 @@ struct CorpusFile {
 
 struct MyApp : App {
 	MyKNN myknn;
-  arma::mat dataset;
-  arma::mat datasetNoIndex;
-  arma::mat normDatasetNoIndex;
+	arma::mat dataset;
+	arma::mat datasetNoIndex;
+	arma::mat normDatasetNoIndex;
 	arma::mat distances;
 	arma::Mat<size_t> neighbors;
 	vector<CorpusFile> corpus;
 	bool fileLoaded = false;
 
 	float hz;
-	std::vector<int> peaksVector;
-	int numBins;
-	int numPeaks;
 	gam::Sine<> osc;
 	gam::OnePole<> frequencyFilter, rateFilter;
 	Parameter rate{"Playback Speed", "", 0.5, "", 0.0, 2.0};
@@ -99,24 +77,14 @@ struct MyApp : App {
 		rateFilter.freq(25);
 
 		gam::sampleRate(audioIO().framesPerSecond());
-		if(player.load("../philip_voice2.wav")) {
-						fileLoaded = true;
-		}
-
-		numBins = stft.numBins();
-
-		for (int i = 0; i < numBins; i++) {
-			spectrum.vertex(2.0 * i / numBins - 1);
-			resynth_spectrum.vertex(2.0 * i / numBins - 1);
-		}
-
-		line.vertex(0, 1);
-		line.vertex(0, 0);
 
 		// begin MLPACK
-		mlpack::data::Load("../mega.meta.csv", dataset, arma::csv_ascii);
-		mlpack::data::Load("../mega.meta.no.index.csv", datasetNoIndex, arma::csv_ascii);
-    std::cout << datasetNoIndex.n_rows << " rows : " << datasetNoIndex.n_cols << endl;
+		mlpack::data::Load("../mega.meta.csv", dataset,
+				   arma::csv_ascii);
+		mlpack::data::Load("../mega.meta.no.index.csv", datasetNoIndex,
+				   arma::csv_ascii);
+		std::cout << datasetNoIndex.n_rows
+			  << " rows : " << datasetNoIndex.n_cols << endl;
 
 		normDatasetNoIndex = arma::normalise(datasetNoIndex);
 
@@ -138,8 +106,7 @@ struct MyApp : App {
 
 	void onSound(AudioIOData& io) override {
 		while (io()) {
-
-      float out = fileLoaded ? player() : 0.0;
+			float out = fileLoaded ? player() : 0.0;
 			io.out(0) = io.out(1) = out;
 		}
 	}
@@ -148,13 +115,13 @@ struct MyApp : App {
 		// std::cout << "on keyboard! " << k.key() << std::endl;
 		minimum = std::numeric_limits<float>::max();
 		maximum = -std::numeric_limits<float>::max();
-		//arma::mat query(3, 1, arma::fill::randu);
-		arma::mat query = { { loudnessParam, toneParam, pitchParam } };
+		// arma::mat query(3, 1, arma::fill::randu);
+		arma::mat query = {{loudnessParam, toneParam, pitchParam}};
 
 		// transpose query matrix with .t()
 		// mlpack::data::load does the transpose automagically
-		 myknn.Search(query.t(), 1, neighbors, distances);
-		//myknn.Search(10, neighbors, distances);
+		myknn.Search(query.t(), 1, neighbors, distances);
+		// myknn.Search(10, neighbors, distances);
 
 		for (size_t i = 0; i < neighbors.n_elem; ++i) {
 			int lineIndex = neighbors[i];
@@ -164,21 +131,24 @@ struct MyApp : App {
 				if (lineIndex >= corpus[j].startFrame &&
 				    lineIndex <
 					lineIndex + corpus[j].lengthInFrames) {
-				  fileName = corpus[j].filePath;
-				  sampleLocation = dataset(0, lineIndex);
+					fileName = corpus[j].filePath;
+					sampleLocation = dataset(0, lineIndex);
 				}
 			}
 			std::cout << "#" << i << ": " << neighbors[i] << " "
-				  << fileName << ", " << sampleLocation << std::endl;
+				  << fileName << ", " << sampleLocation
+				  << std::endl;
 			// open audio file, play samples
-			const char * fileNameCharStar = fileName.c_str();
+			const char* fileNameCharStar = fileName.c_str();
 			fileLoaded = false;
-			std::cout << "loading...." << std::endl;
-      if(player.load(fileNameCharStar)) {
-							fileLoaded = true;
-			}
-			//std::cout << player.frames() << "<-- how many samples this file has" << std::endl;
-			//std::cout << sampleLocation << "<-- sample-index we're shooting for" << std::endl;
+
+			std::cout << "loading file...." << std::endl;
+
+			fileLoaded = player.load(fileNameCharStar);
+			// std::cout << player.frames() << "<-- how many samples
+			// this file has" << std::endl; std::cout <<
+			// sampleLocation << "<-- sample-index we're shooting
+			// for" << std::endl;
 
 			player.pos((double)sampleLocation);
 			// tell the audio thread what to play
@@ -189,38 +159,7 @@ struct MyApp : App {
 	}
 
 	void onDraw(Graphics& g) override {
-		if (freezeParam == 0.0f) {
-			g.clear(0.0);
-			g.camera(Viewpoint::IDENTITY);	// Ortho [-1:1] x [-1:1]
-			g.pushMatrix();
-			g.color(1, 1, 1);
-			// g.translate(-1, 0, 0);
-			g.scale(zoomXParam.get(), 1, 1);
-			g.translate((zoomXParam.get() * 2.0 - 2.0) /
-					(zoomXParam.get() * 2.0),
-				    0, 0);
-			g.draw(spectrum);
-			g.color(0.1, 1, 0.1);
-			g.draw(resynth_spectrum);
-			g.color(1, 1, 1);
-
-			if (peaksVector.size() > 0) {
-				for (int i = 0; i < numPeaks; i++) {
-					hz = audioIO().framesPerSecond() /
-					     2.0f * peaksVector[i] / numBins;
-					g.pushMatrix();
-					g.translate(
-					    diy::map(
-						hz, 0,
-						audioIO().framesPerSecond() / 2,
-						-1, 1),
-					    0, 0);
-					g.draw(line);
-					g.popMatrix();
-				}
-			}
-			g.popMatrix();
-		}
+    g.clear(0.0);
 		gui.draw(g);
 	}
 };
