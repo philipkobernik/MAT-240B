@@ -18,9 +18,10 @@ using namespace std;
 #include "functions.h"
 #include "parse-csv.h"
 
-gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop> player;
 typedef gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop>
     samplePlayer;
+
+samplePlayer * mainPlayer;
 
 typedef mlpack::neighbor::NeighborSearch<   //
     mlpack::neighbor::NearestNeighborSort,  //
@@ -31,9 +32,8 @@ typedef mlpack::neighbor::NeighborSearch<   //
 
 struct CorpusFile {
 	string filePath;
-	int startFrame;
-	int lengthInFrames;
-	samplePlayer * sPlayer; // gam::SoundFile soundFile;
+	int startFrame = 0, lengthInFrames = 0;
+	samplePlayer player; // gam::SoundFile soundFile;
 };
 
 struct MyApp : App {
@@ -45,7 +45,6 @@ struct MyApp : App {
 	arma::Mat<size_t> neighbors;
 	vector<CorpusFile> corpus;
 	bool fileLoaded = false;
-  samplePlayer * mainPlayer;
 
 	float hz;
 	gam::Sine<> osc;
@@ -96,26 +95,19 @@ struct MyApp : App {
 		std::ifstream file("../fileEntries.csv");
 		CSVRow row;
 		while (file >> row) {
-			// gam::SoundFile sf(row[0]);
-			//;
-			// sf.openRead();
-			//samplePlayer sp;
-      samplePlayer * sp;
-      sp = new samplePlayer(); // make a new thing on the heap
-			sp->load(row[0].c_str()); // now low the file
+			corpus.emplace_back(); // init CorpusFile on the end of the vector
+			// this implicitly calls new to create new samplePlayer on the heap
+			corpus.back().player.load(row[0].c_str());
+			corpus.back().filePath = row[0];
+			corpus.back().startFrame = std::stoi(row[1]);
+			corpus.back().lengthInFrames = std::stoi(row[2]);
 
-			CorpusFile f {
-				row[0],
-				std::stoi(row[1]),
-				std::stoi(row[2]),
-				sp // address of the thing on the stack
-			};
 			std::cout << '.';
-			corpus.push_back(f); // vector that is shared between threads
-			mainPlayer = sp;
+			mainPlayer = &corpus.back().player;
 		} // but here......
 		// once you leave the scope, the sp (sample player) gets deleted...
 		// 
+		fileLoaded = true;
 		std::cout << std::endl << "✅ Corpus file list loaded" << std::endl;
 
 		// tell our NeighborSearch object (knn) to use
@@ -126,20 +118,21 @@ struct MyApp : App {
 
 	void onSound(AudioIOData& io) override {
 		while (io()) {
-			//float out = fileLoaded ? player() : 0.0;
-			io.out(0) = io.out(1) = mainPlayer->operator()();
+			float out = fileLoaded ? mainPlayer->operator()() : 0.0;
+			io.out(0) = io.out(1) = out;
 		}
 	}
 
 	bool onKeyDown(const Keyboard& k) override {
-		// std::cout << "on keyboard! " << k.key() << std::endl;
 		minimum = std::numeric_limits<float>::max();
 		maximum = -std::numeric_limits<float>::max();
-		// arma::mat query(3, 1, arma::fill::randu);
-		arma::mat query = {{loudnessParam, toneParam, pitchParam}};
+		float keyboardPitch = (float)(k.key()-48)/10.0f;
+		std::cout << keyboardPitch << std::endl;
+		arma::mat query = {{keyboardPitch, keyboardPitch, keyboardPitch}};
+		//arma::mat query = {{loudnessParam, toneParam, keyboardPitch}};
 
 		// transpose query matrix with .t()
-		// mlpack::data::load does the transpose automagically
+		// (mlpack::data::load does the transpose automagically)
 		myknn.Search(query.t(), 1, neighbors, distances);
 		// myknn.Search(10, neighbors, distances);
 
@@ -153,27 +146,16 @@ struct MyApp : App {
 					lineIndex + corpus[j].lengthInFrames) {
 					fileName = corpus[j].filePath;
 					sampleLocation = dataset(0, lineIndex);
-					mainPlayer = corpus[j].sPlayer;
+					mainPlayer = &corpus[j].player;
 				}
 			}
 			std::cout << "#" << i << ": " << neighbors[i] << " "
 				  << fileName << ", " << sampleLocation
 				  << std::endl;
-			// open audio file, play samples
 			const char* fileNameCharStar = fileName.c_str();
-			fileLoaded = false;
 
-			std::cout << "playing...." << std::endl;
 			mainPlayer->pos((double)sampleLocation);
 
-			//fileLoaded = player.load(fileNameCharStar);
-			// std::cout << player.frames() << "<-- how many samples
-			// this file has" << std::endl; std::cout <<
-			// sampleLocation << "<-- sample-index we're shooting
-			// for" << std::endl;
-
-			//player.pos((double)sampleLocation);
-			// tell the audio thread what to play
 		}
 
 		neighbors.clear();
