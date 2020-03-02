@@ -60,7 +60,10 @@ struct MyApp : App {
 
 	Parameter loudnessParam{"RMS", "", 0.5, "", 0.0, 1.0};
 	Parameter toneParam{"Tone Color", "", 0.5, "", 0.0, 1.0};
+	Parameter kurtosisParam{"Spectral Kurtosis", "", 0.5, "", 0.0, 1.0};
+	Parameter differenceParam{"Spectral Difference", "", 0.5, "", 0.0, 1.0};
 	Parameter pitchParam{"Pitch", "", 0.5, "", 0.0, 1.0};
+	ParameterInt neighborsParam{"Neighbors", "", 30, "", 1, 50};
 
 	ControlGUI gui;
 
@@ -73,7 +76,10 @@ struct MyApp : App {
 	void onCreate() override {
 		gui << loudnessParam;
 		gui << toneParam;
+		gui << kurtosisParam;
+		gui << differenceParam;
 		gui << pitchParam;
+		gui << neighborsParam;
 		gui.init();
 		navControl().useMouse(false);
 
@@ -88,8 +94,8 @@ struct MyApp : App {
 		std::ifstream meshFile("../mega.meta.no.index.csv");
 		CSVRow meshRow;
 		while (meshFile >> meshRow) {
-			Vec3f v(std::stof(meshRow[0]), std::stof(meshRow[1]),
-				std::stof(meshRow[2]));
+			Vec3f v(std::stof(meshRow[1]), std::stof(meshRow[2]),
+				std::stof(meshRow[3]));
 			mesh.vertex(v);
 		}
 
@@ -169,21 +175,25 @@ struct MyApp : App {
 	}
 
 	bool onKeyDown(const Keyboard& k) override {
-		minimum = std::numeric_limits<float>::max();
-		maximum = -std::numeric_limits<float>::max();
 		float keyboardPitch = (float)(k.key() - 48) / 10.0f;
 		std::cout << keyboardPitch << std::endl;
 		// arma::mat query = {
 		//{keyboardPitch, keyboardPitch, keyboardPitch}};
-		arma::mat query = {{loudnessParam, toneParam, pitchParam}};
+		arma::mat query = {{
+				loudnessParam,
+				toneParam,
+				kurtosisParam,
+				differenceParam,
+				keyboardPitch
+		}};
 		if (line.vertices().size()) {
-			Vec3f pv(loudnessParam, toneParam, pitchParam);
+			Vec3f pv(toneParam, kurtosisParam, differenceParam);
 			line.vertices()[0] = pv;
 		}
 
 		// transpose query matrix with .t()
 		// (mlpack::data::load does the transpose automagically)
-		myknn.Search(query.t(), 30, neighbors, distances);
+		myknn.Search(query.t(), neighborsParam, neighbors, distances);
 		// myknn.Search(10, neighbors, distances);
 
 		cloud.clear();

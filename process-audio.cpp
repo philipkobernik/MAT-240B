@@ -1,18 +1,3 @@
-#include "Gist/Gist.h"
-#include "Gist/Gist.cpp"
-#include "Gist/fft/WindowFunctions.h"
-#include "Gist/fft/WindowFunctions.cpp"
-#include "Gist/core/CoreTimeDomainFeatures.h"
-#include "Gist/core/CoreTimeDomainFeatures.cpp"
-#include "Gist/core/CoreFrequencyDomainFeatures.h"
-#include "Gist/core/CoreFrequencyDomainFeatures.cpp"
-#include "Gist/onset-detection-functions/OnsetDetectionFunction.h"
-#include "Gist/onset-detection-functions/OnsetDetectionFunction.cpp"
-#include "Gist/pitch/Yin.h"
-#include "Gist/pitch/Yin.cpp"
-#include "Gist/mfcc/MFCC.h"
-#include "Gist/mfcc/MFCC.cpp"
-
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -20,6 +5,22 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <random>
+
+#include "Gist/Gist.cpp"
+#include "Gist/Gist.h"
+#include "Gist/core/CoreFrequencyDomainFeatures.cpp"
+#include "Gist/core/CoreFrequencyDomainFeatures.h"
+#include "Gist/core/CoreTimeDomainFeatures.cpp"
+#include "Gist/core/CoreTimeDomainFeatures.h"
+#include "Gist/fft/WindowFunctions.cpp"
+#include "Gist/fft/WindowFunctions.h"
+#include "Gist/mfcc/MFCC.cpp"
+#include "Gist/mfcc/MFCC.h"
+#include "Gist/onset-detection-functions/OnsetDetectionFunction.cpp"
+#include "Gist/onset-detection-functions/OnsetDetectionFunction.h"
+#include "Gist/pitch/Yin.cpp"
+#include "Gist/pitch/Yin.h"
 
 using std::cout;
 using std::endl;
@@ -27,15 +28,32 @@ using namespace std;
 
 #include "AudioFile.h"
 
+std::mt19937 seeded_eng() {
+  std::random_device r;
+  std::seed_seq seed{r(), r(), r(), r(), r(), r(), r(), r()};
+  return std::mt19937(seed);
+}
+
+class Random {
+  std::mt19937 eng = seeded_eng();
+public:
+  auto operator()(int a, int b) {
+    std::uniform_int_distribution<int> dist(a, b);
+    return dist(eng);
+  }
+};
+
+Random rng;
+
 AudioFile<float> audioFile;
 
-struct Features {
-				float rms, centroid, pitch;
-};
+// struct Features {
+// float rms, centroid, pitch;
+//};
 
-struct Frame {
-				float f1, f2, f3;
-};
+// struct Frame {
+// float f1, f2, f3;
+//};
 
 std::vector<std::string> get_filenames(std::filesystem::path path) {
 	std::vector<std::string> filenames;
@@ -62,27 +80,31 @@ std::vector<std::string> get_filenames(std::filesystem::path path) {
 float mtof(float m) { return 8.175799f * powf(2.0f, m / 12.0f); }
 
 const int sampleRate = 44100;
-const int frameSize = 1024;
+const int frameSize = 4096;
 const int hopSize = frameSize / 4;
 Gist<float> gist(frameSize, sampleRate);
 
-float f1() { return gist.rootMeanSquare(); }
-float f2() { return gist.spectralCentroid(); }
-float f3() { return gist.pitch(); }
-
 int main() {
-
 	// audioFile.printSummary();
-  vector<Frame> frames;
-	ofstream megaOutFile, megaOutFileNoIndex, fileEntriesOutFile, minMaxOutFile;
+	vector<vector<float>> frames;
+	ofstream megaOutFile, megaOutFileNoIndex, fileEntriesOutFile,
+	    minMaxOutFile;
 	megaOutFile.open("mega.meta.csv");
 	megaOutFileNoIndex.open("mega.meta.no.index.csv");
 	fileEntriesOutFile.open("fileEntries.csv");
 	minMaxOutFile.open("min.max.csv");
 	int frameCount = 0;
 	int startFrame;
-	Features maxx = { -1e30f, -1e30f, -1e30f };
-	Features minn = { 1e30f, 1e30f, 1e30f };
+	vector<float> maxx = {-1e30f, -1e30f, -1e30f, -1e30f, -1e30f};
+	vector<float> minn = {1e30f, 1e30f, 1e30f, 1e30f, 1e30f};
+	int frameFeaturesSize = 5;
+			//vector<float> chosenFeatures = {
+					//gist.rootMeanSquare(),    // 1
+					//gist.spectralCentroid(),  // 2
+					//gist.spectralCrest(),     // 3
+					//gist.spectralRolloff(),   // 4
+					//gist.pitch()	      // 5
+			//};
 
 	for (const auto& name : get_filenames("/Users/ptk/src/corpus_audio")) {
 		std::cout << "👾 " << name << std::endl;
@@ -101,6 +123,9 @@ int main() {
 		startFrame = frameCount;
 		fileEntriesOutFile << name << "," << frameCount << ",";
 
+		vector<string> emojiList = {"🌊","🤠","🚀","⭐️","🐌","🦥","🧚","💆","🥏","🛰"};
+    string progressEmoji = emojiList[rng(0, emojiList.size() - 1)];
+
 		// process audio file
 		// use Gist to analyze and print a bunch of frames
 		//
@@ -110,90 +135,83 @@ int main() {
 			gist.processAudioFrame(&audioFile.samples[channel][n],
 					       frameSize);
 
-			float rms = f1();
-			float centroid = f2();
-			float pitch = f3();
+			vector<float> frameFeatures = {
+			    gist.rootMeanSquare(),    // 1
+					gist.spectralCentroid(),  // 2
+					//gist.spectralCrest(),     // 3
+			    gist.spectralKurtosis(),   // 4
+					gist.spectralDifference(),
+			    gist.pitch()	      // 5
+			};
 
-			if(rms > maxx.rms) maxx.rms = rms;
-			if(centroid > maxx.centroid) maxx.centroid = centroid;
-			if(pitch > maxx.pitch) maxx.pitch = pitch;
-
-			if(rms < minn.rms) minn.rms = rms;
-			if(centroid < minn.centroid) minn.centroid = centroid;
-			if(pitch < minn.pitch) minn.pitch = pitch;
+			for (int f = 0; f < frameFeatures.size(); f++) {
+				float feat = frameFeatures[f];
+				if (feat > maxx[f]) maxx[f] = feat;
+				if (feat < minn[f]) minn[f] = feat;
+			}
 
 			std::ostringstream out;
-			out << rms
-				    << ','
-				    << centroid
-				    << ','
-				    << pitch << endl;
+
+			for (int i = 0; i < frameFeatures.size(); i++) {
+				out << frameFeatures[i];
+				if (i != frameFeatures.size() - 1) {
+					out << ',';
+				} else {
+					out << endl;
+				}
+			}
 
 			megaOutFile << n << ',' << out.str();
-			frames.push_back({rms, centroid, pitch});
-			//megaOutFileNoIndex  << out.str();
+			frames.push_back(frameFeatures);
 			frameCount++;
-							//<< gist.rootMeanSquare()
-						//<< ','
-						////<< gist.peakEnergy() << ','
-						////<< gist.zeroCrossingRate() << ','
-						//<< gist.spectralCentroid()
-						//<< ','
-						////<< gist.spectralCrest() << ','
-						////<< gist.spectralFlatness() << ','
-						////<< gist.spectralRolloff() << ','
-						////<< gist.spectralKurtosis() << ','
-						////<< gist.energyDifference() << ','
-						////<< gist.spectralDifference() << ','
-						////<< gist.highFrequencyContent() << ','
-						//<< gist.pitch() << endl;
 
+			float progress = (float)n / (float)numSamples;
 
-			float progress = (float)n/(float)numSamples;
+			int barWidth = 70;
 
-				int barWidth = 70;
-
-				std::cout << "[";
-				int pos = barWidth * progress;
-				for (int i = 0; i < barWidth; ++i) {
-					if (i < pos)
-						std::cout << "=";
-					else if (i == pos)
-						std::cout << "🕺";
-					else
-						std::cout << " ";
-				}
-				std::cout << "] " << int(progress * 100.0)+1 // use Math.ceil instead of this hax
-					  << " %\r";
-				std::cout.flush();
+			std::cout << "[";
+			int pos = barWidth * progress;
+			for (int i = 0; i < barWidth; ++i) {
+				if (i < pos)
+					std::cout << "=";
+				else if (i == pos)
+					std::cout << progressEmoji;
+				else
+					std::cout << " ";
+			}
+			std::cout << "] "
+				  << int(progress * 100.0) +
+					 1  // use Math.ceil instead of this hax
+				  << " %\r";
+			std::cout.flush();
 		}  // done with file
-    std::cout << std::endl << std::endl;
+		std::cout << std::endl << std::endl;
 
 		fileEntriesOutFile << (frameCount - 1 - startFrame) << endl;
 
 		// outFile.close();
 	}  // end of files loop
-	minMaxOutFile << minn.rms << ',' << maxx.rms << std::endl;
-	minMaxOutFile << minn.centroid << ',' << maxx.centroid << std::endl;
-	minMaxOutFile << minn.pitch << ',' << maxx.pitch << std::endl;
+	for(int i=0; i<frameFeaturesSize; i++) {
+    minMaxOutFile << minn[i] << ',' << maxx[i] << std::endl;
+	}
 
 	// make mega meta file
 	megaOutFile.close();
 	fileEntriesOutFile.close();
 	minMaxOutFile.close();
 
-	for(int i = 0; i<frames.size(); i++) {
-					Frame f = frames[i];
-					megaOutFileNoIndex <<
-									(f.f1-minn.rms) / (maxx.rms-minn.rms)
-									<< ","
-									<< (f.f2-minn.centroid) / (maxx.centroid-minn.centroid)
-									<< ","
-									<< (f.f3-20.0f) / (maxx.pitch-20.0)
-									<< std::endl;
-
+	for (int i = 0; i < frames.size(); i++) {
+		vector<float> f = frames[i];
+		for (int j = 0; j < frameFeaturesSize; j++) {
+			megaOutFileNoIndex
+				<< (f[j] - minn[j]) / (maxx[j] - minn[j]);
+      if(j != frameFeaturesSize-1) {
+				megaOutFileNoIndex << ",";
+			} else {
+				megaOutFileNoIndex << endl;
+			}
+		}
 	}
-
 
 	megaOutFileNoIndex.close();
 	return 0;
