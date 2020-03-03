@@ -44,6 +44,7 @@ struct CloudFrame {
 };
 
 struct MyApp : App {
+  samplePlayer* mainPlayer;
 	MyKNN myknn;
 	arma::mat dataset;
 	arma::mat datasetNoIndex;
@@ -53,6 +54,7 @@ struct MyApp : App {
 	vector<CorpusFile> corpus;
 	vector<CloudFrame> cloud;
 	bool filesLoaded = false;
+	bool grain = true;
 
 	gam::Sine<> osc;
 	gam::OnePole<> frequencyFilter, rateFilter;
@@ -137,7 +139,7 @@ struct MyApp : App {
 						// the vector
 			// this implicitly calls new to create new samplePlayer
 			// on the heap
-			corpus.back().player.load(row[0].c_str()); // load file
+			corpus.back().player.load(row[0].c_str());  // load file
 			corpus.back().filePath = row[0];
 			corpus.back().startFrame = std::stoi(row[1]);
 			corpus.back().lengthInFrames = std::stoi(row[2]);
@@ -147,8 +149,7 @@ struct MyApp : App {
 		}
 
 		filesLoaded = true;
-		std::cout << std::endl
-			  << "✅ Corpus files loaded" << std::endl;
+		std::cout << std::endl << "✅ Corpus files loaded" << std::endl;
 
 		// tell our NeighborSearch object (knn) to use
 		// the dataset
@@ -158,18 +159,29 @@ struct MyApp : App {
 
 	void onSound(AudioIOData& io) override {
 		if (filesLoaded && cloud.size() > 0) {
-			int rndFrameIndex = rng.uniform(cloud.size() - 1);
-			CloudFrame rndCloudFrame = cloud[rndFrameIndex];
-			rndCloudFrame.player->pos(rndCloudFrame.sampleLocation);
-			for (int i = 0; i < 4096; i++) {
-				io.outBuffer(0)[i] = io.outBuffer(1)[i] =
-				    rndCloudFrame.player->operator()();
+			if (grain) {
+				int rndFrameIndex =
+				    rng.uniform(cloud.size() - 1);
+				CloudFrame rndCloudFrame = cloud[rndFrameIndex];
+				rndCloudFrame.player->pos(
+				    rndCloudFrame.sampleLocation);
+				// instead of getting one random frame from the
+				// cloud, I could get 4 frames and
+				// window/overlap them make buffer that is
+				// zero'd out, then do += with each
+				// windowed/overlapped frames
+				for (int i = 0; i < 4096; i++) {
+					io.outBuffer(0)[i] = io.outBuffer(
+					    1)[i] =
+					    rndCloudFrame.player->operator()();
+				}
+				return;
+
 			}
-			return;
 		}
 
 		while (io()) {
-			float f = 0;
+			float f = (filesLoaded && cloud.size() > 0) ? mainPlayer->operator()() : 0;
 			io.out(0) = io.out(1) = f;
 		}
 	}
@@ -177,15 +189,15 @@ struct MyApp : App {
 	bool onKeyDown(const Keyboard& k) override {
 		float keyboardPitch = (float)(k.key() - 48) / 10.0f;
 		std::cout << keyboardPitch << std::endl;
+
+		if(k.key() == 'g') {
+				grain = !grain;
+				return true;
+		}
 		// arma::mat query = {
 		//{keyboardPitch, keyboardPitch, keyboardPitch}};
-		arma::mat query = {{
-				loudnessParam,
-				toneParam,
-				kurtosisParam,
-				differenceParam,
-				keyboardPitch
-		}};
+		arma::mat query = {{loudnessParam, toneParam, kurtosisParam,
+				    differenceParam, keyboardPitch}};
 		if (line.vertices().size()) {
 			Vec3f pv(toneParam, kurtosisParam, differenceParam);
 			line.vertices()[0] = pv;
@@ -214,6 +226,9 @@ struct MyApp : App {
 					cloud.back().sampleLocation =
 					    sampleLocation;
 					cloud.back().player = &corpus[j].player;
+
+				  mainPlayer = &corpus[j].player;
+					mainPlayer->pos(sampleLocation);
 					break;
 				}
 			}
