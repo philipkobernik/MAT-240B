@@ -45,6 +45,7 @@ struct CloudFrame {
 
 struct MyApp : App {
   samplePlayer* mainPlayer;
+  samplePlayer* prevPlayer = nullptr;
 	MyKNN myknn;
 	arma::mat dataset;
 	arma::mat datasetNoIndex;
@@ -158,23 +159,94 @@ struct MyApp : App {
 	}
 
 	void onSound(AudioIOData& io) override {
+    int frameSize = 4096;
 		if (filesLoaded && cloud.size() > 0) {
 			if (grain) {
-				int rndFrameIndex =
-				    rng.uniform(cloud.size() - 1);
-				CloudFrame rndCloudFrame = cloud[rndFrameIndex];
-				rndCloudFrame.player->pos(
-				    rndCloudFrame.sampleLocation);
+				CloudFrame f1 = cloud[rng.uniform(cloud.size() - 1)];
+				CloudFrame f2 = cloud[rng.uniform(cloud.size() - 1)];
+				f1.player->pos(f1.sampleLocation);
+				f2.player->pos(f2.sampleLocation);
+				float prevSample = prevPlayer == nullptr ? 0 : prevPlayer->operator()();
+
+				// 1b
+				// 2a 2b
+				//    2a
+				// quad overlap-and-add sliding window algo
+				//
+				// 1a 1b 1c  1d                        fO1 .75  o3
+				//    2a 2b  2c 2d                     fO2 .5   o2
+				//       3a  3b 3c 3d                  mO3 .25  o1
+				//           4a 4b 4c 4d               mFull .0 n1
+				//              1a 1b 1c  1d           mI3      n2
+				//                 2a 2b  2c 2d        fI2      n3
+				//                    3a  3b 3c 3d     fI1      n4
+				//                        4a 4b 4c 4d
+				//
+				//1d         
+				//2c 2d      
+				//3b 3c 3d   
+				//4a 4b 4c 4d 
+				//   1a 1b 1c  1d         
+				//      2a 2b  2c 2d      
+				//         3a  3b 3c 3d   
+				//             4a 4b 4c 4d 
+				//                1a 1b 1c  1d         
+				//                   2a 2b  2c 2d      
+				//                      3a  3b 3c 3d   
+				//                          4a 4b 4c 4d
+				//                             1a 1b 1c
+				//                                2a 2b
+				//                                   3a
+				//[shift]:
+				//             2d           o1        -> 0-1024
+				//             3c 3d        o2        -> 0-2048
+				//             4b 4c 4d     o3        -> 0-3072
+				//             1a 1b 1c 1d  f         -> 0-4096
+				//                2a 2b 2c  i3 -> o1  -> 1024-4096
+				//                   3a 3b  i2 -> o2  -> 2048-4096
+				//                      4a  i1 -> o3  -> 3072-4096
+				//             0                  f   ->
+				//                1024            i3  ->
+				//                   2048         i2  ->
+				//                      3072      i1  ->
+				//
+				//             on each frame
+				//              - 3 will be from prev: i(1-3)->o(1-3)
+				//              - 4 will be new
+				//              - 1 will be done in the frame
+				//             
+				//
+				//
+				//
+				//
+
 				// instead of getting one random frame from the
 				// cloud, I could get 4 frames and
 				// window/overlap them make buffer that is
 				// zero'd out, then do += with each
 				// windowed/overlapped frames
-				for (int i = 0; i < 4096; i++) {
-					io.outBuffer(0)[i] = io.outBuffer(
-					    1)[i] =
-					    rndCloudFrame.player->operator()();
+				for (int i = 0; i < frameSize/2; i++) {
+				  float phase = diy::map(i, 0, frameSize/2, 0.0f, 1.0f);
+							float fadeIn = 2.0f*phase-(phase*phase);
+							float fadeOut = -1.0f * (phase*phase) + 1.0f;
+					io.outBuffer(0)[i] =
+				    io.outBuffer(1)[i] =
+				      // window this first half
+							// 2x-x^2
+				      f1.player->operator()()*fadeIn + // first half f1
+				        prevSample*fadeOut; // 2nd half prev sample
+								
 				}
+				for (int i = frameSize/2; i < frameSize; i++) {
+				  float phase = diy::map(i, frameSize/2, frameSize, 0.0f, 1.0f);
+							float fadeIn = 2.0f*phase-(phase*phase);
+							float fadeOut = -1.0f * (phase*phase) + 1.0f;
+					io.outBuffer(0)[i] =
+				    io.outBuffer(1)[i] =
+				      f1.player->operator()()*fadeOut + // 2nd half f1
+				        f2.player->operator()()*fadeIn; // first half f2
+				}
+				prevPlayer = f2.player;
 				return;
 
 			}
