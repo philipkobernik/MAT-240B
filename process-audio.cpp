@@ -28,6 +28,8 @@ using namespace std;
 
 #include "AudioFile.h"
 
+#include "functions.h"
+
 std::mt19937 seeded_eng() {
   std::random_device r;
   std::seed_seq seed{r(), r(), r(), r(), r(), r(), r(), r()};
@@ -106,7 +108,7 @@ int main() {
 					//gist.pitch()	      // 5
 			//};
 
-	for (const auto& name : get_filenames("/Users/ptk/src/corpus_audio")) {
+	for (const auto& name : get_filenames("/Users/ptk/src/corpus_755")) {
 		std::cout << "👾 " << name << std::endl;
 		// create meta file
 		// ofstream outFile;
@@ -138,10 +140,10 @@ int main() {
 			vector<float> frameFeatures = {
 			    gist.rootMeanSquare(),    // 1
 					gist.spectralCentroid(),  // 2
-					//gist.spectralCrest(),     // 3
-			    gist.spectralKurtosis(),   // 4
-					gist.spectralDifference(),
-			    gist.pitch()	      // 5
+					gist.spectralCrest(),     // 3
+					//gist.spectralFlatness(),   // 4
+					gist.complexSpectralDifference(),
+			    diy::ftom(gist.pitch())	      // 5
 			};
 
 			for (int f = 0; f < frameFeatures.size(); f++) {

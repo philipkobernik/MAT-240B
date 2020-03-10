@@ -34,13 +34,13 @@ typedef mlpack::neighbor::NeighborSearch<   //
 struct CorpusFile {
 	string filePath;
 	int startFrame = 0, lengthInFrames = 0;
-	samplePlayer player;  // gam::SoundFile soundFile;
+	//samplePlayer player;  // gam::SoundFile soundFile;
 };
 
 struct CloudFrame {
 	string fileName;
 	int sampleLocation;
-	samplePlayer* player;
+	samplePlayer player;
 };
 
 struct MyApp : App {
@@ -77,6 +77,7 @@ struct MyApp : App {
 	float maximum{-std::numeric_limits<float>::max()};
 
 	void onCreate() override {
+    std::cout << std::endl << "starting app" << std::endl;
 		gui << loudnessParam;
 		gui << toneParam;
 		gui << kurtosisParam;
@@ -94,15 +95,17 @@ struct MyApp : App {
 		line.vertex(0, 0, 0);
 		line.vertex(1, 1, 1);
 
-		std::ifstream meshFile("../mega.meta.no.index.csv");
-		CSVRow meshRow;
-		while (meshFile >> meshRow) {
-			Vec3f v(std::stof(meshRow[1]), std::stof(meshRow[2]),
-				std::stof(meshRow[3]));
-			mesh.vertex(v);
-		}
+    std::cout << std::endl << "starting loadmesh" << std::endl;
+		//std::ifstream meshFile("../mega.meta.no.index.csv");
+		//CSVRow meshRow;
+		//while (meshFile >> meshRow) {
+			//Vec3f v(std::stof(meshRow[1]), std::stof(meshRow[2]),
+				//std::stof(meshRow[3]));
+			//// map higher dimensions to color space!
+			//mesh.vertex(v);
+		//}
+    std::cout << std::endl << "done loadmesh" << std::endl;
 
-		gam::sampleRate(audioIO().framesPerSecond());
 
 		// arma::mat tm = {
 		//{1, 2, 3},
@@ -113,12 +116,14 @@ struct MyApp : App {
 		// arma::normalise(tm, 2, 1).print();
 
 		// begin MLPACK
+    std::cout << std::endl << "starting mega.metas" << std::endl;
 		mlpack::data::Load("../mega.meta.csv", dataset,
 				   arma::csv_ascii);
 		mlpack::data::Load("../mega.meta.no.index.csv", datasetNoIndex,
 				   arma::csv_ascii);
 		std::cout << datasetNoIndex.n_rows
 			  << " rows : " << datasetNoIndex.n_cols << endl;
+    std::cout << std::endl << "done mega.metas" << std::endl;
 
 		// normDatasetNoIndex = arma::normalise(datasetNoIndex, 2, 1);
 		// mlpack::data::Save("../normalised.no.index.csv",
@@ -127,12 +132,18 @@ struct MyApp : App {
 		// std::cout << std::endl;
 		// std::cout << std::endl;
 
-		arma::max(datasetNoIndex, 1).print();
 		arma::min(datasetNoIndex, 1).print();
+		arma::max(datasetNoIndex, 1).print();
+
+		cout << endl;
+
+		arma::min(dataset, 1).print();
+		arma::max(dataset, 1).print();
 
 		// arma::max(normDatasetNoIndex, 1).print();
 		// arma::min(normDatasetNoIndex, 1).print();
 
+    std::cout << std::endl << "starting fileEntries" << std::endl;
 		std::ifstream file("../fileEntries.csv");
 		CSVRow row;
 		while (file >> row) {
@@ -140,7 +151,7 @@ struct MyApp : App {
 						// the vector
 			// this implicitly calls new to create new samplePlayer
 			// on the heap
-			corpus.back().player.load(row[0].c_str());  // load file
+			//corpus.back().player.load(row[0].c_str());  // load file
 			corpus.back().filePath = row[0];
 			corpus.back().startFrame = std::stoi(row[1]);
 			corpus.back().lengthInFrames = std::stoi(row[2]);
@@ -149,13 +160,14 @@ struct MyApp : App {
 			std::cout << '.';
 		}
 
-		filesLoaded = true;
-		std::cout << std::endl << "✅ Corpus files loaded" << std::endl;
+		std::cout << std::endl << "✅ Corpus list loaded" << std::endl;
 
 		// tell our NeighborSearch object (knn) to use
 		// the dataset
 		myknn.Train(datasetNoIndex);
 		std::cout << "✅ Dataset (norm, no index) loaded" << std::endl;
+
+		gam::sampleRate(audioIO().framesPerSecond());
 	}
 
 	void onSound(AudioIOData& io) override {
@@ -164,9 +176,10 @@ struct MyApp : App {
 			if (grain) {
 				CloudFrame f1 = cloud[rng.uniform(cloud.size() - 1)];
 				CloudFrame f2 = cloud[rng.uniform(cloud.size() - 1)];
-				f1.player->pos(f1.sampleLocation);
-				f2.player->pos(f2.sampleLocation);
+				f1.player.pos(f1.sampleLocation);
+				f2.player.pos(f2.sampleLocation);
 				float prevSample = prevPlayer == nullptr ? 0 : prevPlayer->operator()();
+				float gain = 0.75f;
 
 				// 1b
 				// 2a 2b
@@ -233,8 +246,8 @@ struct MyApp : App {
 				    io.outBuffer(1)[i] =
 				      // window this first half
 							// 2x-x^2
-				      f1.player->operator()()*fadeIn + // first half f1
-				        prevSample*fadeOut; // 2nd half prev sample
+				      f1.player()*fadeIn*gain + // first half f1
+				        prevSample*fadeOut*gain; // 2nd half prev sample
 								
 				}
 				for (int i = frameSize/2; i < frameSize; i++) {
@@ -243,10 +256,10 @@ struct MyApp : App {
 							float fadeOut = -1.0f * (phase*phase) + 1.0f;
 					io.outBuffer(0)[i] =
 				    io.outBuffer(1)[i] =
-				      f1.player->operator()()*fadeOut + // 2nd half f1
-				        f2.player->operator()()*fadeIn; // first half f2
+				      f1.player()*fadeOut*gain + // 2nd half f1
+				        f2.player()*fadeIn*gain; // first half f2
 				}
-				prevPlayer = f2.player;
+				prevPlayer = &f2.player;
 				return;
 
 			}
@@ -280,7 +293,8 @@ struct MyApp : App {
 		myknn.Search(query.t(), neighborsParam, neighbors, distances);
 		// myknn.Search(10, neighbors, distances);
 
-		cloud.clear();
+		filesLoaded = false; // should stop playback
+		cloud.clear(); // should release samples
 		for (size_t i = 0; i < neighbors.n_elem; ++i) {
 			int lineIndex = neighbors[i];
 			string fileName;
@@ -297,9 +311,9 @@ struct MyApp : App {
 					cloud.back().fileName = fileName;
 					cloud.back().sampleLocation =
 					    sampleLocation;
-					cloud.back().player = &corpus[j].player;
+					cloud.back().player.load(fileName.c_str());
 
-				  mainPlayer = &corpus[j].player;
+				  mainPlayer = &cloud.back().player;
 					mainPlayer->pos(sampleLocation);
 					break;
 				}
@@ -309,6 +323,7 @@ struct MyApp : App {
 				  << std::endl;
 		}
 
+		filesLoaded = true;
 		neighbors.clear();
 		distances.clear();
 	}
