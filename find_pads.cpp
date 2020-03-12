@@ -15,21 +15,19 @@ using namespace std;
 
 int frameFeaturesSize = 5;
 
-struct Note
-{
-  int lineIndex;
-  int sampleLocation;
+struct Note {
+	int lineIndex;
+	int sampleLocation;
 	float midiPitch;
-	int padLength;
+	int lengthInFrames;
 
-	bool operator < (const Note& n) const
-    {
-        return (midiPitch < n.midiPitch);
-    }
+	bool operator<(const Note& n) const {
+		return (midiPitch < n.midiPitch);
+	}
 };
 
 int main() {
-  vector<Note> notes;
+	vector<Note> notes;
 	vector<float> maxx;
 	vector<float> minn;
 	ofstream outFile;
@@ -37,17 +35,19 @@ int main() {
 	std::ifstream minMaxFile("./min.max.csv");
 	CSVRow minMaxRow;
 	while (minMaxFile >> minMaxRow) {
-		minn.push_back(stof(minMaxRow[0]));
-		maxx.push_back(stof(minMaxRow[1]));
-		// std::cout << "pushed back" << std::endl;
+		float minValue = stof(minMaxRow[0]);
+		float maxValue = stof(minMaxRow[1]);
+		minn.push_back(minValue);
+		maxx.push_back(maxValue);
 	}
 	std::cout << "min/max loaded" << std::endl;
 
 	std::ifstream metaFile("./mega.meta.csv");
 	CSVRow row;
 
-	float pitch = 0;
-	int padLength = 0;
+	float notePitch = 0;
+	float notePower = 0;
+	int lengthInFrames = 0;
 	bool withinPitch, isPeaky, noOnset, noteSearch = false;
 	int rowIndex = 0;
 	while (metaFile >> row) {
@@ -67,57 +67,68 @@ int main() {
 		// else
 		//   if frame is peaky
 		//     set flag and remember pitch
-		withinPitch = (stof(row[5]) > pitch - 2.0f) &&
-			      (stof(row[5]) < pitch + 2.0f);
-		isPeaky = stof(row[3]) > 700.0f;
-		noOnset = stof(row[4]) < 1000.0f;
+
+		float framePower = stof(row[1]);
+		float frameTone = stof(row[2]);
+		float framePitch = stof(row[5]);
+		float framePeakiness = stof(row[3]);
+		float frameOnset = stof(row[4]);
+		withinPitch = (framePitch > notePitch - 2.0f) &&
+			      (framePitch < notePitch + 2.0f);
+		isPeaky = framePeakiness > 750.0f;
+		noOnset = (framePower > notePower - 0.075f) &&
+				    (framePower < notePower + 0.075f);
 
 		if (noteSearch) {
 			if (withinPitch && isPeaky && noOnset) {
-				padLength++;
+				lengthInFrames++;
 			} else {
-				if (padLength > 40) {
-								notes.emplace_back();
-								notes.back().lineIndex = rowIndex;
-								notes.back().sampleLocation = stoi(row[0]);
-								notes.back().midiPitch = diy::ftom(stof(row[5]));
-								notes.back().padLength = padLength;
-					//notes.push_back(
-						//{stoi(row[0]), diy::ftom(stof(row[5])), padLength}
+				if (lengthInFrames > 25) {
+					notes.emplace_back();
+					notes.back().lineIndex =
+					    rowIndex - lengthInFrames;
+					notes.back().sampleLocation =
+					    stoi(row[0]);
+					notes.back().midiPitch =
+					    diy::ftom(framePitch);
+					notes.back().lengthInFrames =
+					    lengthInFrames;
+					// notes.push_back(
+					//{stoi(row[0]),
+					//diy::ftom(stof(row[5])),
+					//lengthInFrames}
 					//);
 				}
 				noteSearch = false;
-				padLength = 0;
+				lengthInFrames = 0;
 			}
 		} else {
 			if (isPeaky) {
 				noteSearch = true;
-				padLength++;
-				pitch = stof(row[5]);
+				lengthInFrames++;
+				notePitch = framePitch;
+				notePower = framePower;
 			}
 		}
 
-		//outFile << outStream.str();
+		// outFile << outStream.str();
 		rowIndex++;
 	}
-	
+
 	std::sort(notes.begin(), notes.end());
 
-	for(int i = 0; i < notes.size(); i++) {
+	for (int i = 0; i < notes.size(); i++) {
 		std::ostringstream outStream;
-		outStream << notes[i].lineIndex
-						  << ","
-						  << notes[i].sampleLocation
-						  << ","
-						  << notes[i].midiPitch
-						  << ","
-							<< notes[i].padLength
-							<< endl;
+		outStream << notes[i].lineIndex << ","
+			  << notes[i].sampleLocation << ","
+			  << notes[i].midiPitch << ","
+			  << notes[i].lengthInFrames << endl;
 		cout << outStream.str();
 		outFile << outStream.str();
 	}
 
 	outFile.close();
+	std::cout << "found :" << notes.size() << std::endl;
 	std::cout << "the end" << std::endl;
 }
 
