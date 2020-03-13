@@ -34,7 +34,7 @@ typedef mlpack::neighbor::NeighborSearch<   //
 struct CorpusFile {
 	string filePath;
 	int startFrame = 0, lengthInFrames = 0;
-	//samplePlayer player;  // gam::SoundFile soundFile;
+	// samplePlayer player;  // gam::SoundFile soundFile;
 };
 
 struct CloudNote {
@@ -46,11 +46,12 @@ struct CloudNote {
 };
 
 struct MyApp : App {
-  samplePlayer* mainPlayer;
+	samplePlayer* mainPlayer;
 	int mainPlayerLengthInFrames;
 	int mainPlayerSampleLocation;
+	int noteIndex = 0;
 
-  samplePlayer* prevPlayer = nullptr;
+	samplePlayer* prevPlayer = nullptr;
 	MyKNN myknn;
 	arma::mat dataset;
 	arma::mat datasetNoIndex;
@@ -69,6 +70,7 @@ struct MyApp : App {
 	Parameter toneParam{"Tone Color", "", 0.5, "", 0.0, 1.0};
 	Parameter onsetParam{"Onset", "", 0.5, "", 0.0, 1.0};
 	Parameter peakinessParam{"Peakiness", "", 0.5, "", 0.0, 1.0};
+	Parameter pitchParam{"Pitch", "", 0.5, "", 0.0, 1.0};
 
 	ControlGUI gui;
 
@@ -79,11 +81,12 @@ struct MyApp : App {
 	float maximum{-std::numeric_limits<float>::max()};
 
 	void onCreate() override {
-    std::cout << std::endl << "starting app" << std::endl;
+		std::cout << std::endl << "starting app" << std::endl;
 		gui << loudnessParam;
 		gui << toneParam;
 		gui << onsetParam;
 		gui << peakinessParam;
+		gui << pitchParam;
 		gui.init();
 		navControl().useMouse(false);
 
@@ -95,17 +98,16 @@ struct MyApp : App {
 		line.vertex(0, 0, 0);
 		line.vertex(1, 1, 1);
 
-    std::cout << std::endl << "starting loadmesh" << std::endl;
-		//std::ifstream meshFile("../mega.meta.no.index.csv");
-		//CSVRow meshRow;
-		//while (meshFile >> meshRow) {
-			//Vec3f v(std::stof(meshRow[1]), std::stof(meshRow[2]),
-				//std::stof(meshRow[3]));
-			//// map higher dimensions to color space!
-			//mesh.vertex(v);
+		std::cout << std::endl << "starting loadmesh" << std::endl;
+		// std::ifstream meshFile("../mega.meta.no.index.csv");
+		// CSVRow meshRow;
+		// while (meshFile >> meshRow) {
+		// Vec3f v(std::stof(meshRow[1]), std::stof(meshRow[2]),
+		// std::stof(meshRow[3]));
+		//// map higher dimensions to color space!
+		// mesh.vertex(v);
 		//}
-    std::cout << std::endl << "done loadmesh" << std::endl;
-
+		std::cout << std::endl << "done loadmesh" << std::endl;
 
 		// arma::mat tm = {
 		//{1, 2, 3},
@@ -116,14 +118,14 @@ struct MyApp : App {
 		// arma::normalise(tm, 2, 1).print();
 
 		// begin MLPACK
-    std::cout << std::endl << "starting pads" << std::endl;
-		mlpack::data::Load("../notes.csv", dataset,
-				   arma::csv_ascii);
+		std::cout << std::endl << "starting notes" << std::endl;
+		mlpack::data::Load("../notes.csv", dataset, arma::csv_ascii);
 		mlpack::data::Load("../notes.norm.no.index.csv", datasetNoIndex,
 				   arma::csv_ascii);
+
 		std::cout << datasetNoIndex.n_rows
 			  << " rows : " << datasetNoIndex.n_cols << endl;
-    std::cout << std::endl << "done pads" << std::endl;
+		std::cout << std::endl << "done notes" << std::endl;
 
 		// normDatasetNoIndex = arma::normalise(datasetNoIndex, 2, 1);
 		// mlpack::data::Save("../normalised.no.index.csv",
@@ -143,7 +145,7 @@ struct MyApp : App {
 		// arma::max(normDatasetNoIndex, 1).print();
 		// arma::min(normDatasetNoIndex, 1).print();
 
-    std::cout << std::endl << "starting fileEntries" << std::endl;
+		std::cout << std::endl << "starting fileEntries" << std::endl;
 		std::ifstream file("../fileEntries.csv");
 		CSVRow row;
 		while (file >> row) {
@@ -151,7 +153,8 @@ struct MyApp : App {
 						// the vector
 			// this implicitly calls new to create new samplePlayer
 			// on the heap
-			//corpus.back().player.load(row[0].c_str());  // load file
+			// corpus.back().player.load(row[0].c_str());  // load
+			// file
 			corpus.back().filePath = row[0];
 			corpus.back().startFrame = std::stoi(row[1]);
 			corpus.back().lengthInFrames = std::stoi(row[2]);
@@ -171,114 +174,129 @@ struct MyApp : App {
 	}
 
 	void onSound(AudioIOData& io) override {
-    int frameSize = 4096;
+		int frameSize = 4096;
 
 		while (io()) {
 			float f = 0;
 			if (filesLoaded && cloud.size() > 0) {
-				int noteEnd = (mainPlayerLengthInFrames - 1) *
+				int noteEnd = (mainPlayerLengthInFrames - 2) *
 						  (frameSize / 4) +
 					      mainPlayerSampleLocation;
 				if (mainPlayer->pos() > noteEnd) {
-					mainPlayer->pos(mainPlayerSampleLocation);
+				  advanceNote();
+					//mainPlayer->pos(
+							//mainPlayerSampleLocation);
 				}
 
 				f = mainPlayer->operator()();
 			}
 			io.out(0) = io.out(1) = f;
 		}
-
 	}
+
 	bool generateKeyboard() {
-    // get the params:
-		//float loudness = 0;
-		//float tone = 0;
-		//float onset = 0;
-		//float peakiness = 0;
+		// get the params:
+		// float loudness = 0;
+		// float tone = 0;
+		// float onset = 0;
+		// float peakiness = 0;
 
 		// execute search on params
 		// this is searching pads.norm.no.index.csv
-		arma::mat query = {{loudnessParam, toneParam, onsetParam, peakinessParam}};
-		myknn.Search(query.t(), 150, neighbors, distances);
+		// arma::mat query = {{loudnessParam, toneParam, onsetParam,
+		// peakinessParam, pitchParam}};
+
+		noteIndex = 0;
+		arma::mat query = {pitchParam};
+		myknn.Search(query.t(), 30, neighbors, distances);
 
 		// map pitches to the keyboard
-		filesLoaded = false; // should stop playback
-		cloud.clear(); // should release samples
+		filesLoaded = false;  // should stop playback
+		cloud.clear();	      // should release samples
 		for (size_t i = 0; i < neighbors.n_elem; ++i) {
 			int padsIndexRow = neighbors[i];
 			string fileName;
 			int corpusFrameIndex = dataset(0, padsIndexRow);
-      int sampleLocation = dataset(1, padsIndexRow);
+			int sampleLocation = dataset(1, padsIndexRow);
 			float midiPitch = dataset(2, padsIndexRow);
-      int lengthInFrames = dataset(3, padsIndexRow);
+			int lengthInFrames = dataset(3, padsIndexRow);
 
 			// from the 50, assign the midipitches to keys
 
 			// loading the selection of notes into memory
 			for (size_t j = 0; j < corpus.size(); j++) {
 				if (corpusFrameIndex >= corpus[j].startFrame &&
-				    corpusFrameIndex < corpus[j].startFrame +
-						    corpus[j].lengthInFrames) {
+				    corpusFrameIndex <
+					corpus[j].startFrame +
+					    corpus[j].lengthInFrames) {
 					// add to list
 					fileName = corpus[j].filePath;
 
 					cloud.emplace_back();
 					cloud.back().fileName = fileName;
-					cloud.back().sampleLocation = sampleLocation;
-					cloud.back().player.load(fileName.c_str());
+					cloud.back().sampleLocation =
+					    sampleLocation;
+					cloud.back().player.load(
+					    fileName.c_str());
 					cloud.back().midiPitch = midiPitch;
-					cloud.back().lengthInFrames = lengthInFrames;
+					cloud.back().lengthInFrames =
+					    lengthInFrames;
 
-				  mainPlayer = &cloud.back().player;
-					mainPlayer->pos(sampleLocation);
-				  mainPlayerLengthInFrames = lengthInFrames;
-				  mainPlayerSampleLocation = sampleLocation;
 					break;
 				}
 			}
+
 			std::cout << "#" << i << ": midi: " << midiPitch << " "
 				  << fileName << ", " << lengthInFrames
 				  << std::endl;
 		}
+		advanceNote();
 
 		filesLoaded = true;
 		neighbors.clear();
 		distances.clear();
 	}
 
+	bool advanceNote() {
+		noteIndex = (noteIndex+1) % cloud.size();
+		mainPlayer = &cloud[noteIndex].player;
+		mainPlayer->pos(cloud[noteIndex].sampleLocation);
+		mainPlayerLengthInFrames = cloud[noteIndex].lengthInFrames;
+		mainPlayerSampleLocation = cloud[noteIndex].sampleLocation;
+	}
+
 	bool onKeyDown(const Keyboard& k) override {
-		float keyboardPitch = (float)(k.key() - 48 + 60-34);
+		float keyboardPitch = (float)(k.key() - 48 + 60 - 34);
 		std::cout << keyboardPitch << std::endl;
 		std::cout << cloud.size() << std::endl;
 
-		if(k.key() == 'g') {
-				generateKeyboard();
-				return true;
+		if (k.key() == 'g') {
+			generateKeyboard();
+			return true;
 		}
 
 		// iterate the cloud, find note that is closest to keyboardPitch
-		for(int i=0; i< cloud.size(); i++) {
-				  CloudNote c = cloud[i];
-					if(c.midiPitch > keyboardPitch - 0.2 &&
-													c.midiPitch < keyboardPitch + 0.2) {
-									std::cout << "found the note!" << endl;
-									filesLoaded = false;
-									mainPlayer = &c.player;
-									mainPlayer->pos(c.sampleLocation);
-					mainPlayerLengthInFrames = c.lengthInFrames;
-					mainPlayerSampleLocation = c.sampleLocation;
-									filesLoaded = true;
-					return true;
-					}
-					//mainPlayer = &cloud.back().player;
-					//mainPlayer->pos(sampleLocation);
-					//mainPlayerLengthInFrames = lengthInFrames;
-					//mainPlayerSampleLocation = sampleLocation;
+		for (int i = 0; i < cloud.size(); i++) {
+			CloudNote c = cloud[i];
+			if (c.midiPitch > keyboardPitch - 0.3 &&
+			    c.midiPitch < keyboardPitch + 0.3) {
+				std::cout << "found the note!" << endl;
+				filesLoaded = false;
+				mainPlayer = &c.player;
+				mainPlayer->pos(c.sampleLocation);
+				mainPlayerLengthInFrames = c.lengthInFrames;
+				mainPlayerSampleLocation = c.sampleLocation;
+				filesLoaded = true;
+				return true;
+			}
+			// mainPlayer = &cloud.back().player;
+			// mainPlayer->pos(sampleLocation);
+			// mainPlayerLengthInFrames = lengthInFrames;
+			// mainPlayerSampleLocation = sampleLocation;
 		}
 		std::cout << "no note found!" << endl;
 		return false;
 		// set that to mainPlayer?
-
 	}
 
 	void onDraw(Graphics& g) override {
