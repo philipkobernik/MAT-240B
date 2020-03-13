@@ -138,12 +138,11 @@ int main() {
 					       frameSize);
 
 			vector<float> frameFeatures = {
-			    gist.rootMeanSquare(),    // 1
-					gist.spectralCentroid(),  // 2
-					gist.spectralCrest(),     // 3
-					//gist.spectralFlatness(),   // 4
-					gist.complexSpectralDifference(),
-			    diy::ftom(gist.pitch())	      // 5
+			    gist.rootMeanSquare(),    // 0
+					gist.spectralCentroid(),  // 1
+					gist.spectralCrest(),     // 2
+					gist.complexSpectralDifference(), // 3
+			    diy::ftom(gist.pitch())	      // 4
 			};
 
 			for (int f = 0; f < frameFeatures.size(); f++) {

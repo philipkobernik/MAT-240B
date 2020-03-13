@@ -20,6 +20,10 @@ struct Note {
 	int sampleLocation;
 	float midiPitch;
 	int lengthInFrames;
+	float rms;
+	float tone;
+	float onset;
+	float peakiness;
 
 	bool operator<(const Note& n) const {
 		return (midiPitch < n.midiPitch);
@@ -30,8 +34,10 @@ int main() {
 	vector<Note> notes;
 	vector<float> maxx;
 	vector<float> minn;
-	ofstream outFile;
-	outFile.open("pads.csv");
+	ofstream outFile, outFileNormNoIndex;
+	outFile.open("notes.csv");
+	outFileNormNoIndex.open("notes.norm.no.index.csv");
+
 	std::ifstream minMaxFile("./min.max.csv");
 	CSVRow minMaxRow;
 	while (minMaxFile >> minMaxRow) {
@@ -47,60 +53,62 @@ int main() {
 
 	float notePitch = 0;
 	float notePower = 0;
+	float noteOnset = 0;
+
+	float noteToneSum = 0;
+	float notePeakinessSum = 0;
+
 	int lengthInFrames = 0;
 	bool withinPitch, isPeaky, noOnset, noteSearch = false;
 	int rowIndex = 0;
 	while (metaFile >> row) {
-		// if flag set
-		//   if frame has pitch within range and is peaky..
-		//     increment count and move on
-		//   else
-		//     if count is higher than 10
-		//       write the interval including
-		//       frameindex, ftom(pitch), count
-		//       (in future, average of other values)
-		//
-		//     else
-		//       discard the interval (don't write)
-		//       remove flag
-		//
-		// else
-		//   if frame is peaky
-		//     set flag and remember pitch
-
+		int frameSampleLocation = stof(row[0]);
 		float framePower = stof(row[1]);
 		float frameTone = stof(row[2]);
 		float framePitch = stof(row[5]);
 		float framePeakiness = stof(row[3]);
 		float frameOnset = stof(row[4]);
+
 		withinPitch = (framePitch > notePitch - 2.0f) &&
 			      (framePitch < notePitch + 2.0f);
-		isPeaky = framePeakiness > 750.0f;
+		isPeaky = framePeakiness > 400.0f;  // 750 best results so far
 		noOnset = (framePower > notePower - 0.075f) &&
-				    (framePower < notePower + 0.075f);
+			  (framePower < notePower + 0.075f);
 
 		if (noteSearch) {
 			if (withinPitch && isPeaky && noOnset) {
+				// increment counter
 				lengthInFrames++;
+
+				// increment sums to calc avg
+				noteToneSum += frameTone;
+				notePeakinessSum += framePeakiness;
+
 			} else {
 				if (lengthInFrames > 25) {
 					notes.emplace_back();
 					notes.back().lineIndex =
 					    rowIndex - lengthInFrames;
 					notes.back().sampleLocation =
-					    stoi(row[0]);
+					    frameSampleLocation;
 					notes.back().midiPitch =
 					    diy::ftom(framePitch);
 					notes.back().lengthInFrames =
 					    lengthInFrames;
-					// notes.push_back(
-					//{stoi(row[0]),
-					//diy::ftom(stof(row[5])),
-					//lengthInFrames}
-					//);
+					notes.back().rms =
+					    notePower;	// varies little
+					notes.back().tone =
+					    noteToneSum /
+					    lengthInFrames;  // avg tone
+					notes.back().onset =
+					    noteOnset;	// attack onset
+					notes.back().peakiness =
+					    notePeakinessSum / lengthInFrames;
 				}
 				noteSearch = false;
 				lengthInFrames = 0;
+				noteToneSum = 0;
+				notePeakinessSum = 0;
 			}
 		} else {
 			if (isPeaky) {
@@ -108,6 +116,7 @@ int main() {
 				lengthInFrames++;
 				notePitch = framePitch;
 				notePower = framePower;
+				noteOnset = frameOnset;
 			}
 		}
 
@@ -122,12 +131,32 @@ int main() {
 		outStream << notes[i].lineIndex << ","
 			  << notes[i].sampleLocation << ","
 			  << notes[i].midiPitch << ","
-			  << notes[i].lengthInFrames << endl;
+			  << notes[i].lengthInFrames << "," << notes[i].rms
+			  << "," << notes[i].tone << "," << notes[i].onset
+			  << "," << notes[i].peakiness << endl;
 		cout << outStream.str();
 		outFile << outStream.str();
 	}
 
+	// end pads.csv
 	outFile.close();
+
+	// write pads.norm.no.index.csv
+	for (int i = 0; i < notes.size(); i++) {
+      Note n = notes[i];
+			outFileNormNoIndex
+				<< (n.rms - minn[0]) / (maxx[0] - minn[0])
+				<< ","
+				<< (n.tone - minn[1]) / (maxx[1] - minn[1])
+				<< ","
+				<< (n.onset - minn[3]) / (maxx[3] - minn[3])
+				<< ","
+				<< (n.peakiness - minn[2]) / (maxx[2] - minn[2])
+				<< endl;
+	}
+
+	outFileNormNoIndex.close();
+
 	std::cout << "found :" << notes.size() << std::endl;
 	std::cout << "the end" << std::endl;
 }

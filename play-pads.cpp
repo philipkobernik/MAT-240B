@@ -48,7 +48,11 @@ struct Note {
 	int lineIndex;
 	int sampleLocation;
 	float midiPitch;
-	int padLength;
+	int lengthInFrames;
+	float rms;
+	float tone;
+	float onset;
+	float peakiness;
 
 	bool operator<(const Note& n) const {
 		return (midiPitch < n.midiPitch);
@@ -116,8 +120,12 @@ struct MyApp : App {
 			notes.emplace_back();
 			notes.back().lineIndex = stoi(padRow[0]);
 			notes.back().sampleLocation = stoi(padRow[1]);
-			notes.back().midiPitch  = stof(padRow[2]);
-			notes.back().padLength  = stoi(padRow[3]);
+			notes.back().midiPitch = stof(padRow[2]);
+			notes.back().lengthInFrames = stoi(padRow[3]);
+			notes.back().rms = stof(padRow[4]);
+			notes.back().tone = stof(padRow[5]);
+			notes.back().onset = stof(padRow[6]);
+			notes.back().peakiness = stof(padRow[7]);
 		}
 		std::cout << std::endl << "finished load pads" << std::endl;
 
@@ -169,39 +177,41 @@ struct MyApp : App {
 	void onSound(AudioIOData& io) override {
 		int frameSize = 4096;
 		Note note = notes[padIndex];
-		//if (filesLoaded && cloud.size() > 0) {
-			//if (grain) {
-				//CloudFrame f1 =
-						//cloud[rng.uniform(cloud.size() - 1)];
-				//CloudFrame f2 =
-						//cloud[rng.uniform(cloud.size() - 1)];
-				//f1.player.pos(f1.sampleLocation);
-				//f2.player.pos(f2.sampleLocation);
-				//float prevSample =
-						//prevPlayer == nullptr
-					//? 0
-					//: prevPlayer->operator()();
-				//float gain = 0.75f;
+		// if (filesLoaded && cloud.size() > 0) {
+		// if (grain) {
+		// CloudFrame f1 =
+		// cloud[rng.uniform(cloud.size() - 1)];
+		// CloudFrame f2 =
+		// cloud[rng.uniform(cloud.size() - 1)];
+		// f1.player.pos(f1.sampleLocation);
+		// f2.player.pos(f2.sampleLocation);
+		// float prevSample =
+		// prevPlayer == nullptr
+		//? 0
+		//: prevPlayer->operator()();
+		// float gain = 0.75f;
 
-				//for (int i = 0; i < frameSize; i++) {
-					//io.outBuffer(0)[i] =
-							//io.outBuffer(1)[i] = f1.player();
-				//}
-				//prevPlayer = &f2.player;
-				//return;
-			//}
+		// for (int i = 0; i < frameSize; i++) {
+		// io.outBuffer(0)[i] =
+		// io.outBuffer(1)[i] = f1.player();
+		//}
+		// prevPlayer = &f2.player;
+		// return;
+		//}
 		//}
 
 		while (io()) {
 			float f = 0;
-			if(filesLoaded && cloud.size() > 0) {
-      int noteEnd = (cloud[0].frameLength-1)*(frameSize/4) + cloud[0].sampleLocation;
-				if(mainPlayer->pos() > noteEnd) {
-				  mainPlayer->pos(cloud[0].sampleLocation);
+			if (filesLoaded && cloud.size() > 0) {
+				int noteEnd = (cloud[0].frameLength - 1) *
+						  (frameSize / 4) +
+					      cloud[0].sampleLocation;
+				if (mainPlayer->pos() > noteEnd) {
+					mainPlayer->pos(
+					    cloud[0].sampleLocation);
 				}
 
 				f = mainPlayer->operator()();
-
 			}
 			io.out(0) = io.out(1) = f;
 		}
@@ -219,39 +229,41 @@ struct MyApp : App {
 		filesLoaded = false;  // should stop playback
 		cloud.clear();	      // should release samples
 		Note note = notes[padIndex];
-		
-			int lineIndex = note.lineIndex;
-			string fileName;
-			int sampleLocation = note.sampleLocation;
-			for (size_t j = 0; j < corpus.size(); j++) {
-				cout << "lineIndex " << lineIndex << endl;
-				cout << "corpus startframe " << corpus[j].startFrame << endl;
-				cout << "corpus startframe+lengthInFrames " << corpus[j].startFrame+corpus[j].lengthInFrames << endl;
-				if (lineIndex >= corpus[j].startFrame &&
-				    lineIndex < corpus[j].startFrame +
-						    corpus[j].lengthInFrames) {
+    cout << "rms " << note.rms << endl;
+		cout << "tone " << note.tone << endl;
+		cout << "onset " << note.onset << endl;
+		cout << "peakiness " << note.peakiness << endl;
 
-					// add to list
-					fileName = corpus[j].filePath;
-					//sampleLocation = dataset(0, lineIndex);
+		int lineIndex = note.lineIndex;
+		string fileName;
+		int sampleLocation = note.sampleLocation;
+		for (size_t j = 0; j < corpus.size(); j++) {
+			// cout << "lineIndex " << lineIndex << endl;
+			// cout << "corpus startframe " << corpus[j].startFrame
+			// << endl; cout << "corpus startframe+lengthInFrames "
+			// << corpus[j].startFrame+corpus[j].lengthInFrames <<
+			// endl;
+			if (lineIndex >= corpus[j].startFrame &&
+			    lineIndex < corpus[j].startFrame +
+					    corpus[j].lengthInFrames) {
+				// add to list
+				fileName = corpus[j].filePath;
+				// sampleLocation = dataset(0, lineIndex);
 
-					cloud.emplace_back();
-					cloud.back().fileName = fileName;
-					cloud.back().sampleLocation =
-					    sampleLocation;
-					cloud.back().frameLength = note.padLength;
-					cloud.back().player.load(
-					    fileName.c_str());
+				cloud.emplace_back();
+				cloud.back().fileName = fileName;
+				cloud.back().sampleLocation = sampleLocation;
+				cloud.back().frameLength = note.lengthInFrames;
+				cloud.back().player.load(fileName.c_str());
 
-					mainPlayer = &cloud.back().player;
-					mainPlayer->pos(sampleLocation);
-					break;
-				}
+				mainPlayer = &cloud.back().player;
+				mainPlayer->pos(sampleLocation);
+				break;
 			}
-			// cloud of 1
-			std::cout << "#" << padIndex << ": "
-				  << fileName << ", " << sampleLocation
-				  << std::endl;
+		}
+		// cloud of 1
+		std::cout << "#" << padIndex << ": " << fileName << ", "
+			  << sampleLocation << std::endl;
 
 		filesLoaded = true;
 		neighbors.clear();
