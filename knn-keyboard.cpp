@@ -4,7 +4,7 @@
 #include "Gamma/SoundFile.h"
 #include "al/app/al_App.hpp"
 #include "al/math/al_Random.hpp"
-#include "al/ui/al_ControlGUI.hpp"  // gui.draw(g)
+#include "al/ui/al_ControlGUI.hpp"
 using namespace al;
 using namespace std;
 
@@ -27,37 +27,110 @@ typedef gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop>
 typedef mlpack::neighbor::NeighborSearch<   //
     mlpack::neighbor::NearestNeighborSort,  //
     mlpack::metric::EuclideanDistance,	    //
-    arma::mat,				    //
-    mlpack::tree::BallTree>		    //
+    arma::mat,				    								  //
+    mlpack::tree::BallTree>		     					//
     MyKNN;
 
 struct CorpusFile {
 	string filePath;
 	int startFrame = 0, lengthInFrames = 0;
-	// samplePlayer player;  // gam::SoundFile soundFile;
 };
 
 struct CloudNote {
 	string fileName;
-	int sampleLocation;
+	double sampleLocation;
 	samplePlayer player;
-	float midiPitch;
-	int lengthInFrames;
+	double midiPitch;
+	double lengthInFrames;
+};
+
+struct MidiPitchCluster {
+	int midiPitch;
+	MyKNN knn;
+	vector<CloudNote> notes;
+	arma::mat dataset;
+	arma::mat datasetNoIndex;
+	arma::mat distances;
+	arma::Mat<size_t> neighbors;
+
+	void init(int noteNumber) {
+		midiPitch = noteNumber;
+
+		char filepath[30];
+		char filepathNoIndex[30];
+		sprintf(filepath, "../note-%d.csv", noteNumber);
+		sprintf(filepathNoIndex, "../note-%d.no.index.csv", noteNumber);
+
+		mlpack::data::Load(filepath, dataset, arma::csv_ascii);
+		mlpack::data::Load(filepathNoIndex, datasetNoIndex,
+				   arma::csv_ascii);
+
+		std::cout << "midiCluster " << noteNumber << ": "
+			  << datasetNoIndex.n_rows << " x "
+			  << datasetNoIndex.n_cols << endl;
+		train();
+	}
+
+	void train() {
+		knn.Train(datasetNoIndex);
+		std::cout << "midiCluster " << midiPitch << ": training done."
+			  << endl;
+	}
+	void query(arma::mat queryMatrix) {
+		knn.Search(queryMatrix.t(), 1, neighbors, distances);
+	}
+	void loadNote(vector<CorpusFile> corpus) {  // should this be a pointer?
+    // neighbors will only be 1 element in this design
+		for (size_t i = 0; i < neighbors.n_elem; ++i) {
+			int padsIndexRow = neighbors[i];
+			string fileName;
+			int corpusFrameIndex = dataset(0, padsIndexRow);
+			double sampleLocation = dataset(1, padsIndexRow);
+			double midiPitch = dataset(2, padsIndexRow);
+			double lengthInFrames = dataset(3, padsIndexRow);
+
+			// loading the selection of notes into memory
+			for (size_t j = 0; j < corpus.size(); j++) {
+				if (corpusFrameIndex >= corpus[j].startFrame &&
+				    corpusFrameIndex <
+					corpus[j].startFrame +
+					    corpus[j].lengthInFrames) {
+					// add to list
+					fileName = corpus[j].filePath;
+
+					notes.emplace_back();
+					notes.back().fileName = fileName;
+					notes.back().sampleLocation =
+					    sampleLocation;
+					notes.back().player.load(
+					    fileName.c_str());
+					notes.back().midiPitch = midiPitch;
+					notes.back().lengthInFrames =
+					    lengthInFrames;
+
+					break;
+				}
+			}
+
+			std::cout << "#" << i << ": midi: " << midiPitch << " "
+				  << fileName << ", " << lengthInFrames
+				  << std::endl;
+		}
+
+		neighbors.clear();
+		distances.clear();
+	}
 };
 
 struct MyApp : App {
 	samplePlayer* mainPlayer;
-	int mainPlayerLengthInFrames;
-	int mainPlayerSampleLocation;
+	double mainPlayerLengthInFrames;
+	double mainPlayerSampleLocation;
 	int noteIndex = 0;
 
 	samplePlayer* prevPlayer = nullptr;
-	MyKNN myknn;
-	arma::mat dataset;
-	arma::mat datasetNoIndex;
-	arma::mat normDatasetNoIndex;
-	arma::mat distances;
-	arma::Mat<size_t> neighbors;
+
+	vector<MidiPitchCluster> midiPitchClusters;
 	vector<CorpusFile> corpus;
 	vector<CloudNote> cloud;
 	bool filesLoaded = false;
@@ -109,52 +182,20 @@ struct MyApp : App {
 		//}
 		std::cout << std::endl << "done loadmesh" << std::endl;
 
-		// arma::mat tm = {
-		//{1, 2, 3},
-		//{4, 5, 6},
-		//{7, 8, 9}
-		//};
-		// tm.print();
-		// arma::normalise(tm, 2, 1).print();
-
-		// begin MLPACK
 		std::cout << std::endl << "starting notes" << std::endl;
-		mlpack::data::Load("../notes.csv", dataset, arma::csv_ascii);
-		mlpack::data::Load("../notes.norm.no.index.csv", datasetNoIndex,
-				   arma::csv_ascii);
 
-		std::cout << datasetNoIndex.n_rows
-			  << " rows : " << datasetNoIndex.n_cols << endl;
+		for (int i = 24; i < 40; i++) {
+			midiPitchClusters.emplace_back();
+			midiPitchClusters.back().init(i);
+		}
+
 		std::cout << std::endl << "done notes" << std::endl;
-
-		// normDatasetNoIndex = arma::normalise(datasetNoIndex, 2, 1);
-		// mlpack::data::Save("../normalised.no.index.csv",
-		// normDatasetNoIndex);
-
-		// std::cout << std::endl;
-		// std::cout << std::endl;
-
-		arma::min(datasetNoIndex, 1).print();
-		arma::max(datasetNoIndex, 1).print();
-
-		cout << endl;
-
-		arma::min(dataset, 1).print();
-		arma::max(dataset, 1).print();
-
-		// arma::max(normDatasetNoIndex, 1).print();
-		// arma::min(normDatasetNoIndex, 1).print();
 
 		std::cout << std::endl << "starting fileEntries" << std::endl;
 		std::ifstream file("../fileEntries.csv");
 		CSVRow row;
 		while (file >> row) {
-			corpus.emplace_back();	// init CorpusFile on the end of
-						// the vector
-			// this implicitly calls new to create new samplePlayer
-			// on the heap
-			// corpus.back().player.load(row[0].c_str());  // load
-			// file
+			corpus.emplace_back();
 			corpus.back().filePath = row[0];
 			corpus.back().startFrame = std::stoi(row[1]);
 			corpus.back().lengthInFrames = std::stoi(row[2]);
@@ -165,27 +206,23 @@ struct MyApp : App {
 
 		std::cout << std::endl << "✅ Corpus list loaded" << std::endl;
 
-		// tell our NeighborSearch object (knn) to use
-		// the dataset
-		myknn.Train(datasetNoIndex);
-		std::cout << "✅ Dataset (norm, no index) loaded" << std::endl;
-
 		gam::sampleRate(audioIO().framesPerSecond());
 	}
 
 	void onSound(AudioIOData& io) override {
-		int frameSize = 4096;
+		double frameSize = 4096;
 
 		while (io()) {
 			float f = 0;
-			if (filesLoaded && cloud.size() > 0) {
-				int noteEnd = (mainPlayerLengthInFrames - 2) *
-						  (frameSize / 4) +
+
+			if (filesLoaded) {
+				double noteEnd = (mainPlayerLengthInFrames - 2.0) *
+						  (frameSize / 4.0) +
 					      mainPlayerSampleLocation;
+				cout << "onSound mainPlayer->pos(): " << mainPlayer->pos() << endl;
 				if (mainPlayer->pos() > noteEnd) {
-				  advanceNote();
-					//mainPlayer->pos(
-							//mainPlayerSampleLocation);
+				  cout << "past end of note, moving pos" << endl;
+					mainPlayer->pos(mainPlayerSampleLocation);
 				}
 
 				f = mainPlayer->operator()();
@@ -195,108 +232,46 @@ struct MyApp : App {
 	}
 
 	bool generateKeyboard() {
-		// get the params:
-		// float loudness = 0;
-		// float tone = 0;
-		// float onset = 0;
-		// float peakiness = 0;
+		arma::mat query = {
+		    {loudnessParam, toneParam, onsetParam, peakinessParam}};
 
-		// execute search on params
-		// this is searching pads.norm.no.index.csv
-		// arma::mat query = {{loudnessParam, toneParam, onsetParam,
-		// peakinessParam, pitchParam}};
+		filesLoaded = false; // protect memory access in onSound
 
-		noteIndex = 0;
-		arma::mat query = {pitchParam};
-		myknn.Search(query.t(), 30, neighbors, distances);
-
-		// map pitches to the keyboard
-		filesLoaded = false;  // should stop playback
-		cloud.clear();	      // should release samples
-		for (size_t i = 0; i < neighbors.n_elem; ++i) {
-			int padsIndexRow = neighbors[i];
-			string fileName;
-			int corpusFrameIndex = dataset(0, padsIndexRow);
-			int sampleLocation = dataset(1, padsIndexRow);
-			float midiPitch = dataset(2, padsIndexRow);
-			int lengthInFrames = dataset(3, padsIndexRow);
-
-			// from the 50, assign the midipitches to keys
-
-			// loading the selection of notes into memory
-			for (size_t j = 0; j < corpus.size(); j++) {
-				if (corpusFrameIndex >= corpus[j].startFrame &&
-				    corpusFrameIndex <
-					corpus[j].startFrame +
-					    corpus[j].lengthInFrames) {
-					// add to list
-					fileName = corpus[j].filePath;
-
-					cloud.emplace_back();
-					cloud.back().fileName = fileName;
-					cloud.back().sampleLocation =
-					    sampleLocation;
-					cloud.back().player.load(
-					    fileName.c_str());
-					cloud.back().midiPitch = midiPitch;
-					cloud.back().lengthInFrames =
-					    lengthInFrames;
-
-					break;
-				}
-			}
-
-			std::cout << "#" << i << ": midi: " << midiPitch << " "
-				  << fileName << ", " << lengthInFrames
-				  << std::endl;
+		for (int i = 0; i < midiPitchClusters.size(); i++) {
+			midiPitchClusters[i].query(query);
+			midiPitchClusters[i].loadNote(corpus);
 		}
-		advanceNote();
 
-		filesLoaded = true;
-		neighbors.clear();
-		distances.clear();
-	}
+		cout << "finished querying all notes" << endl;
 
-	bool advanceNote() {
-		noteIndex = (noteIndex+1) % cloud.size();
-		mainPlayer = &cloud[noteIndex].player;
-		mainPlayer->pos(cloud[noteIndex].sampleLocation);
-		mainPlayerLengthInFrames = cloud[noteIndex].lengthInFrames;
-		mainPlayerSampleLocation = cloud[noteIndex].sampleLocation;
 	}
 
 	bool onKeyDown(const Keyboard& k) override {
-		float keyboardPitch = (float)(k.key() - 48 + 60 - 34);
-		std::cout << keyboardPitch << std::endl;
-		std::cout << cloud.size() << std::endl;
+		int noteNumber = k.key() - 48 + 23;
+		std::cout << noteNumber << std::endl;
 
 		if (k.key() == 'g') {
 			generateKeyboard();
 			return true;
 		}
 
-		// iterate the cloud, find note that is closest to keyboardPitch
-		for (int i = 0; i < cloud.size(); i++) {
-			CloudNote c = cloud[i];
-			if (c.midiPitch > keyboardPitch - 0.3 &&
-			    c.midiPitch < keyboardPitch + 0.3) {
-				std::cout << "found the note!" << endl;
-				filesLoaded = false;
-				mainPlayer = &c.player;
-				mainPlayer->pos(c.sampleLocation);
-				mainPlayerLengthInFrames = c.lengthInFrames;
-				mainPlayerSampleLocation = c.sampleLocation;
-				filesLoaded = true;
-				return true;
-			}
-			// mainPlayer = &cloud.back().player;
-			// mainPlayer->pos(sampleLocation);
-			// mainPlayerLengthInFrames = lengthInFrames;
-			// mainPlayerSampleLocation = sampleLocation;
-		}
-		std::cout << "no note found!" << endl;
-		return false;
-		// set that to mainPlayer?
+		MidiPitchCluster c = midiPitchClusters[noteNumber-24]; // hacky
+		cout << "Chosen cluster pitch: " << c.midiPitch << endl;
+		CloudNote n = c.notes[0];
+		cout << "Chosen note: " << n.midiPitch << endl;
+		filesLoaded = false;
+
+		mainPlayer = &n.player;
+		cout << "onKeyDown target: " << n.sampleLocation << endl;
+		mainPlayer->pos(n.sampleLocation);
+		cout << "onKeyDown mainPlayer->pos(target); (invoked) " << endl;
+
+
+		cout << "onKeyDown mainPlayer->pos(): " << mainPlayer->pos() << endl;
+
+		mainPlayerLengthInFrames = n.lengthInFrames;
+		mainPlayerSampleLocation = n.sampleLocation;
+		filesLoaded = true;
 	}
 
 	void onDraw(Graphics& g) override {
