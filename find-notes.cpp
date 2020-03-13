@@ -85,7 +85,7 @@ int main() {
 				notePeakinessSum += framePeakiness;
 
 			} else {
-				if (lengthInFrames > 25) {
+				if (lengthInFrames > 20) {
 					notes.emplace_back();
 					notes.back().lineIndex =
 					    rowIndex - lengthInFrames;
@@ -145,14 +145,19 @@ int main() {
 	for (int i = 0; i < notes.size(); i++) {
       Note n = notes[i];
 			outFileNormNoIndex
-				<< (n.rms - minn[0]) / (maxx[0] - minn[0])
-				<< ","
-				<< (n.tone - minn[1]) / (maxx[1] - minn[1])
-				<< ","
-				<< (n.onset - minn[3]) / (maxx[3] - minn[3])
-				<< ","
-				<< (n.peakiness - minn[2]) / (maxx[2] - minn[2])
+				//<< (n.rms - minn[0]) / (maxx[0] - minn[0])
+				//<< ","
+				//<< (n.tone - minn[1]) / (maxx[1] - minn[1])
+				//<< ","
+				//<< (n.onset - minn[3]) / (maxx[3] - minn[3])
+				//<< ","
+				//<< (n.peakiness - minn[2]) / (maxx[2] - minn[2])
+				//<< ","
+				<< (n.midiPitch - minn[4]) / (maxx[4] - minn[4])
 				<< endl;
+
+			//int p = n.midiPitch;
+			//float ramp = n.midiPitch - p;
 	}
 
 	outFileNormNoIndex.close();
