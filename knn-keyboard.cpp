@@ -136,8 +136,6 @@ struct VoiceMementos : App, MIDIMessageHandler {
   vector<MidiPitchCluster> midiPitchClusters;
   vector<CorpusFile> corpus;
   vector<CloudNote> cloud;
-  bool filesLoaded = false;
-  bool grain = true;
 
   gam::Sine<> osc;
   gam::OnePole<> frequencyFilter, rateFilter;
@@ -172,18 +170,63 @@ struct VoiceMementos : App, MIDIMessageHandler {
     }
   }
 
+  // This gets called whenever a MIDI message is received on the port
+  void onMIDIMessage(const MIDIMessage& m) {
+    // Here we demonstrate how to parse common channel messages
+    switch (m.type()) {
+      case MIDIByte::NOTE_ON:
+        update = true;
+        noteToPlay = m.noteNumber() - 36;
+        break;
+
+      case MIDIByte::NOTE_OFF:
+        player = nullptr;
+        break;
+
+      case MIDIByte::PITCH_BEND:
+        break;
+
+      // Control messages need to be parsed again...
+      case MIDIByte::CONTROL_CHANGE:
+        switch (m.controlNumber()) {
+          case MIDIByte::MODULATION:
+            loudnessParam =
+                loudnessParam + ((int)m.controlValue() == 1 ? -0.04 : 0.04);
+            break;
+          case 2:
+            toneParam = toneParam + ((int)m.controlValue() == 1 ? -0.04 : 0.04);
+            break;
+          case 3:
+            onsetParam =
+                onsetParam + ((int)m.controlValue() == 1 ? -0.04 : 0.04);
+            break;
+          case 4:
+            peakinessParam =
+                peakinessParam + ((int)m.controlValue() == 1 ? -0.04 : 0.04);
+            break;
+
+          case MIDIByte::EXPRESSION:
+            break;
+
+          default:
+            generateKeyboard();
+            break;
+        }
+        break;
+      default:;
+    }
+  }
+
   void onCreate() override {
     std::cout << std::endl << "starting app" << std::endl;
     gui << loudnessParam;
     gui << toneParam;
     gui << onsetParam;
     gui << peakinessParam;
-    gui << pitchParam;
     gui.init();
     navControl().useMouse(false);
 
     frequencyFilter.freq(25);
-    rateFilter.freq(25);
 
     mesh.primitive(Mesh::POINTS);
     line.primitive(Mesh::LINES);
@@ -191,15 +234,19 @@ struct VoiceMementos : App, MIDIMessageHandler {
     line.vertex(1, 1, 1);
 
     std::cout << std::endl << "starting loadmesh" << std::endl;
-    // std::ifstream meshFile("../mega.meta.no.index.csv");
-    // CSVRow meshRow;
-    // while (meshFile >> meshRow) {
-    // Vec3f v(std::stof(meshRow[1]), std::stof(meshRow[2]),
-    // std::stof(meshRow[3]));
-    //// map higher dimensions to color space!
-    // mesh.vertex(v);
-    //}
-    std::cout << std::endl << "done loadmesh" << std::endl;
+    std::ifstream meshFile("../notes.csv");
+    CSVRow meshRow;
+    while (meshFile >> meshRow) {
+      Vec3f v(std::stof(meshRow[0]), std::stof(meshRow[1]),
+              std::stof(meshRow[3]));
+      // map higher dimensions to color space!
+      mesh.vertex(v);
+    }
+    std::cout << std::endl
+      << "finished loadmesh: "
+      << mesh.vertices().size()
+      << " points"
+      << std::endl;
 
     std::cout << std::endl << "starting notes" << std::endl;
 
@@ -229,8 +276,6 @@ struct VoiceMementos : App, MIDIMessageHandler {
   }
 
   void onSound(AudioIOData& io) override {
-    double frameSize = 4096;
-
     // use a "try lock" in the audio thread because we won't wait
     // when we don't get the lock; we just do nothing and move on.
     // we'll do better next time.
@@ -239,11 +284,16 @@ struct VoiceMementos : App, MIDIMessageHandler {
       // we (the audio thread) have the lock so we know that
       // our state won't change until we release the lock.
       //
-      if (update) {
+      if (update && noteToPlay < 40 && noteToPlay > 23) {
         update = false;
+        if (line.vertices().size()) {
+          Vec3f pv(loudnessParam, toneParam, peakinessParam);
+          line.vertices()[0] = pv;
+        }
 
         MidiPitchCluster* c = &midiPitchClusters[noteToPlay - 24];  // hacky
         CloudNote* n = &c->notes[0];
+        osc.freq(frequencyFilter(diy::mtof(n->midiPitch)));
         cout << "Chosen note: " << n->midiPitch << endl;
         cout << "file: " << n->fileName << endl;
 
@@ -260,32 +310,13 @@ struct VoiceMementos : App, MIDIMessageHandler {
 
     while (io()) {
       float f = player == nullptr ? 0.0f : player->operator()();
-      io.out(0) = io.out(1) = f * 0.5f;
+      io.out(0) = io.out(1) = (f * 0.5f) + (osc() * 0.5f);
     }
-
-    // while (io()) {
-    // float f = 0;
-
-    // if (filesLoaded) {
-    // double noteEnd = (mainPlayerLengthInFrames - 2.0) *
-    //(frameSize / 4.0) +
-    // mainPlayerSampleLocation;
-    // cout << "onSound mainPlayer->pos(): " << mainPlayer->pos() <<
-    // endl; if (mainPlayer->pos() > noteEnd) { cout << "past end of
-    // note, moving pos" << endl;
-    // mainPlayer->pos(mainPlayerSampleLocation);
-    //}
-
-    // f = mainPlayer->operator()();
-    //}
-    // io.out(0) = io.out(1) = f;
-    //}
   }
 
   bool generateKeyboard() {
     arma::mat query = {{loudnessParam, toneParam, onsetParam, peakinessParam}};
 
-    // filesLoaded = false;  // protect memory access in onSound
     player = nullptr;  // protect memory access in onSound
 
     for (int i = 0; i < midiPitchClusters.size(); i++) {
@@ -324,7 +355,7 @@ struct VoiceMementos : App, MIDIMessageHandler {
 int main() {
   AudioDevice dev = AudioDevice::defaultOutput();
   VoiceMementos app;
-  app.configureAudio(dev, dev.defaultSampleRate(), 4096, dev.channelsOutMax(),
+  app.configureAudio(dev, dev.defaultSampleRate(), 512, dev.channelsOutMax(),
                      dev.channelsInMax());
 
   app.start();
