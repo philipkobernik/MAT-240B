@@ -13,6 +13,7 @@ using namespace std;
 #include <iostream>
 #include <limits>
 #include <mlpack/methods/neighbor_search/neighbor_search.hpp>
+#include <mutex>
 #include <set>
 #include <vector>
 
@@ -27,8 +28,8 @@ typedef gam::SamplePlayer<float, gam::ipl::Cubic, gam::phsInc::Loop>
 typedef mlpack::neighbor::NeighborSearch<   //
     mlpack::neighbor::NearestNeighborSort,  //
     mlpack::metric::EuclideanDistance,	    //
-    arma::mat,				    								  //
-    mlpack::tree::BallTree>		     					//
+    arma::mat,				    //
+    mlpack::tree::BallTree>		    //
     MyKNN;
 
 struct CorpusFile {
@@ -80,7 +81,8 @@ struct MidiPitchCluster {
 		knn.Search(queryMatrix.t(), 1, neighbors, distances);
 	}
 	void loadNote(vector<CorpusFile> corpus) {  // should this be a pointer?
-    // neighbors will only be 1 element in this design
+		notes.clear();
+		// neighbors will only be 1 element in this design
 		for (size_t i = 0; i < neighbors.n_elem; ++i) {
 			int padsIndexRow = neighbors[i];
 			string fileName;
@@ -122,8 +124,15 @@ struct MidiPitchCluster {
 	}
 };
 
-struct MyApp : App {
+struct VoiceMementos : App {
+	mutex m;
+	bool update{false};
+	int noteToPlay{25};
+
 	samplePlayer* mainPlayer;
+
+	samplePlayer* player = nullptr;
+
 	double mainPlayerLengthInFrames;
 	double mainPlayerSampleLocation;
 	int noteIndex = 0;
@@ -212,30 +221,67 @@ struct MyApp : App {
 	void onSound(AudioIOData& io) override {
 		double frameSize = 4096;
 
-		while (io()) {
-			float f = 0;
+		// use a "try lock" in the audio thread because we won't wait
+		// when we don't get the lock; we just do nothing and move on.
+		// we'll do better next time.
+		//
+		if (m.try_lock()) {
+			// we (the audio thread) have the lock so we know that
+			// our state won't change until we release the lock.
+			//
+			if (update) {
+				update = false;
 
-			if (filesLoaded) {
-				double noteEnd = (mainPlayerLengthInFrames - 2.0) *
-						  (frameSize / 4.0) +
-					      mainPlayerSampleLocation;
-				cout << "onSound mainPlayer->pos(): " << mainPlayer->pos() << endl;
-				if (mainPlayer->pos() > noteEnd) {
-				  cout << "past end of note, moving pos" << endl;
-					mainPlayer->pos(mainPlayerSampleLocation);
-				}
+				MidiPitchCluster* c =
+				    &midiPitchClusters[noteToPlay -
+						       24];  // hacky
+				CloudNote* n = &c->notes[0];
+				cout << "Chosen note: " << n->midiPitch << endl;
+				cout << "file: " << n->fileName << endl;
 
-				f = mainPlayer->operator()();
+				player = &n->player;
+				player->pos(n->sampleLocation);
+				player->min(n->sampleLocation);
+
+				float noteEndFrame =
+				    (n->lengthInFrames - 1.0) * (4096.0 / 4.0) +
+				    n->sampleLocation;
+				player->max(noteEndFrame);
 			}
-			io.out(0) = io.out(1) = f;
+			m.unlock();
 		}
+
+		while (io()) {
+			float f =
+			    player == nullptr ? 0.0f : player->operator()();
+			io.out(0) = io.out(1) = f * 0.5f;
+		}
+
+		// while (io()) {
+		// float f = 0;
+
+		// if (filesLoaded) {
+		// double noteEnd = (mainPlayerLengthInFrames - 2.0) *
+		//(frameSize / 4.0) +
+		// mainPlayerSampleLocation;
+		// cout << "onSound mainPlayer->pos(): " << mainPlayer->pos() <<
+		// endl; if (mainPlayer->pos() > noteEnd) { cout << "past end of
+		// note, moving pos" << endl;
+		// mainPlayer->pos(mainPlayerSampleLocation);
+		//}
+
+		// f = mainPlayer->operator()();
+		//}
+		// io.out(0) = io.out(1) = f;
+		//}
 	}
 
 	bool generateKeyboard() {
 		arma::mat query = {
 		    {loudnessParam, toneParam, onsetParam, peakinessParam}};
 
-		filesLoaded = false; // protect memory access in onSound
+		// filesLoaded = false;  // protect memory access in onSound
+		player = nullptr;  // protect memory access in onSound
 
 		for (int i = 0; i < midiPitchClusters.size(); i++) {
 			midiPitchClusters[i].query(query);
@@ -243,35 +289,23 @@ struct MyApp : App {
 		}
 
 		cout << "finished querying all notes" << endl;
-
 	}
 
 	bool onKeyDown(const Keyboard& k) override {
 		int noteNumber = k.key() - 48 + 23;
-		std::cout << noteNumber << std::endl;
+		std::cout << "note number: " << noteNumber << std::endl;
 
 		if (k.key() == 'g') {
 			generateKeyboard();
 			return true;
 		}
 
-		MidiPitchCluster c = midiPitchClusters[noteNumber-24]; // hacky
-		cout << "Chosen cluster pitch: " << c.midiPitch << endl;
-		CloudNote n = c.notes[0];
-		cout << "Chosen note: " << n.midiPitch << endl;
-		filesLoaded = false;
-
-		mainPlayer = &n.player;
-		cout << "onKeyDown target: " << n.sampleLocation << endl;
-		mainPlayer->pos(n.sampleLocation);
-		cout << "onKeyDown mainPlayer->pos(target); (invoked) " << endl;
-
-
-		cout << "onKeyDown mainPlayer->pos(): " << mainPlayer->pos() << endl;
-
-		mainPlayerLengthInFrames = n.lengthInFrames;
-		mainPlayerSampleLocation = n.sampleLocation;
-		filesLoaded = true;
+		// protect the critical data with a lock
+		m.lock();
+		update = true;
+		noteToPlay = noteNumber;
+		m.unlock();
+		return false;
 	}
 
 	void onDraw(Graphics& g) override {
@@ -284,9 +318,10 @@ struct MyApp : App {
 
 int main() {
 	AudioDevice dev = AudioDevice::defaultOutput();
-	MyApp app;
+	VoiceMementos app;
 	app.configureAudio(dev, dev.defaultSampleRate(), 4096,
 			   dev.channelsOutMax(), dev.channelsInMax());
 
 	app.start();
 }
+
