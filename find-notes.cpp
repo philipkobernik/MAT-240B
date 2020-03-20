@@ -59,6 +59,12 @@ int main() {
   float pitchStdDev = statsMat(0, 5);
   float pitchMean = statsMat(1, 5);
 
+  float rmsStdDev = statsMat(0, 1);
+  float rmsMean = statsMat(1, 1);
+  float rmsMin = rmsMean - 2 * rmsStdDev;
+  float rmsMax = rmsMean + 2 * rmsStdDev;
+
+
   cout << "stdDev " << pitchStdDev << endl;
 
   std::ifstream metaFile("./mega.meta.filter.pitch.csv");
@@ -72,9 +78,10 @@ int main() {
   float notePeakinessSum = 0;
 
   int lengthInFrames = 0;
-  bool withinPitch, isPeaky, similarNotePower, noteSearch = false;
+  bool withinLoudness, withinPitch, isPeaky, similarNotePower, noteSearch = false;
   int rowIndex = 0;
   int droppedCounter = 0;
+
   while (metaFile >> row) {
     int frameSampleLocation = stoi(row[0]);
     float framePower = stof(row[1]);
@@ -86,9 +93,12 @@ int main() {
     float allowedDistance = 2 * pitchStdDev;
     bool withinRange = (framePitch > pitchMean - allowedDistance) &&
                        (framePitch < pitchMean + allowedDistance);
+
+    bool withinLoudness = (framePower > rmsMin) &&
+                       (framePower < rmsMax);
     // outside n std dev...
 
-    if (withinRange) {
+    if (withinRange && withinLoudness) {
       withinPitch =
           (framePitch > notePitch - 2.0f) && (framePitch < notePitch + 2.0f);
       // TODO: Investigate using yin confidance
@@ -136,7 +146,7 @@ int main() {
             notes.back().lineIndex = rowIndex - lengthInFrames;
             notes.back().sampleLocation = frameSampleLocation;
             notes.back().midiPitch = diy::ftom(notePitch);
-            notes.back().lengthInFrames = lengthInFrames-1;
+            notes.back().lengthInFrames = lengthInFrames - 1;
             notes.back().rms = notePower;                      // varies little
             notes.back().tone = noteToneSum / lengthInFrames;  // avg tone
             notes.back().onset = noteOnset;                    // attack onset
@@ -160,7 +170,7 @@ int main() {
       // outFile << outStream.str();
     } else {
       droppedCounter++;
-      cout << "dropping frame " << droppedCounter << endl;
+      //cout << "dropping frame " << droppedCounter << endl;
     }
     rowIndex++;
   }
@@ -169,10 +179,16 @@ int main() {
 
   for (int i = 0; i < notes.size(); i++) {
     std::ostringstream outStream;
-    outStream << notes[i].lineIndex << "," << notes[i].sampleLocation << ","
-              << notes[i].midiPitch << "," << notes[i].lengthInFrames << ","
-              << notes[i].rms << "," << notes[i].tone << "," << notes[i].onset
-              << "," << notes[i].peakiness << endl;
+    outStream                              //
+        << notes[i].lineIndex << ","       //
+        << notes[i].sampleLocation << ","  //
+        << notes[i].midiPitch << ","       //
+        << notes[i].lengthInFrames << ","  //
+        << notes[i].rms << ","             //
+        << notes[i].tone << ","            //
+        << notes[i].onset << ","           //
+        << notes[i].peakiness              //
+        << endl;
     // cout << outStream.str();
     outFile << outStream.str();
   }
@@ -186,22 +202,14 @@ int main() {
   for (int i = 0; i < notes.size(); i++) {
     Note n = notes[i];
     outFileNormNoIndex
-        //<< (n.rms - minn[0]) / (maxx[0] - minn[0])
-        //<< ","
-        //<< (n.tone - minn[1]) / (maxx[1] - minn[1])
-        //<< ","
-        //<< (n.onset - minn[3]) / (maxx[3] - minn[3])
-        //<< ","
-        //<< (n.peakiness - minn[2]) / (maxx[2] - minn[2])
-        //<< ","
         << (n.midiPitch - minn[4]) / (maxx[4] - minn[4]) << endl;
+    // this is what powers knn-note-loop
 
     int p = n.midiPitch;
     float ramp = n.midiPitch - p;
 
     for (int j = 24; j < noteCounts.size(); j++) {
-      if ((n.midiPitch > float(j) - 0.16) &&
-          (n.midiPitch < float(j) + 0.16)) {
+      if ((n.midiPitch > float(j) - 0.5) && (n.midiPitch < float(j) + 0.5)) {
         noteCounts[j] = noteCounts[j] + 1;
         if (files.size() < j - 23) {
           char outName[30];
@@ -219,17 +227,19 @@ int main() {
                          << notes[i].lengthInFrames << "," << notes[i].rms
                          << "," << notes[i].tone << "," << notes[i].onset << ","
                          << notes[i].peakiness << endl;
-
+        
         files.back().outNormNoIndex
-            << (n.rms - minn[0]) / (maxx[0] - minn[0]) << ","
+            << (n.rms - rmsMin) / (rmsMax - rmsMin) << ","
             << (n.tone - minn[1]) / (maxx[1] - minn[1]) << ","
-            << (n.onset - minn[3]) / (maxx[3] - minn[3]) << ","
+            //<< (n.onset - minn[3]) / (maxx[3] - minn[3]) << ","
             << (n.peakiness - minn[2]) / (maxx[2] - minn[2]) << endl;
       }
     }
   }
+  int noteCountSum{0};
   for (int j = 24; j < noteCounts.size(); j++) {
     std::cout << "noteCounts: " << j << ": " << noteCounts[j] << std::endl;
+    noteCountSum += noteCounts[j];
   }
   for (int j = 0; j < files.size(); j++) {
     files[j].out.close();
@@ -238,7 +248,9 @@ int main() {
 
   outFileNormNoIndex.close();
 
-  std::cout << "found :" << notes.size() << std::endl;
+  std::cout << "found :" << notes.size() << " before filtering by closeness to midi notes" <<  std::endl;
+  std::cout << "found :" << noteCountSum << " after filtering by closeness to midi notes" <<  std::endl;
+  std::cout << "dropped frames during search: " << droppedCounter << std::endl;
   std::cout << "the end" << std::endl;
 }
 
