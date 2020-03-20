@@ -122,6 +122,7 @@ struct VoiceMementos : App, MIDIMessageHandler {
   mutex m;
   bool update{false};
   int noteToPlay{25};
+  bool noteLoop = true;
 
   samplePlayer* mainPlayer;
 
@@ -243,10 +244,8 @@ struct VoiceMementos : App, MIDIMessageHandler {
       mesh.vertex(v);
     }
     std::cout << std::endl
-      << "finished loadmesh: "
-      << mesh.vertices().size()
-      << " points"
-      << std::endl;
+              << "finished loadmesh: " << mesh.vertices().size() << " points"
+              << std::endl;
 
     std::cout << std::endl << "starting notes" << std::endl;
 
@@ -293,24 +292,31 @@ struct VoiceMementos : App, MIDIMessageHandler {
 
         MidiPitchCluster* c = &midiPitchClusters[noteToPlay - 24];  // hacky
         CloudNote* n = &c->notes[0];
-        osc.freq(frequencyFilter(diy::mtof(n->midiPitch)));
+        osc.freq(diy::mtof(n->midiPitch + 12));
         cout << "Chosen note: " << n->midiPitch << endl;
         cout << "file: " << n->fileName << endl;
 
         player = &n->player;
         player->pos(n->sampleLocation);
-        player->min(n->sampleLocation);
 
-        float noteEndFrame =
-            (n->lengthInFrames - 1.0) * (4096.0 / 4.0) + n->sampleLocation;
-        player->max(noteEndFrame);
+        if (noteLoop) {
+          player->min(n->sampleLocation);
+
+          float noteEndFrame =
+              (n->lengthInFrames - 1.0) * (4096.0 / 4.0) + n->sampleLocation;
+          player->max(noteEndFrame);
+        } else {
+          player->min(0);
+          player->max(player->frames());
+        }
       }
       m.unlock();
     }
 
     while (io()) {
       float f = player == nullptr ? 0.0f : player->operator()();
-      io.out(0) = io.out(1) = (f * 0.5f) + (osc() * 0.5f);
+      io.out(0) = (f * 0.5f);
+      io.out(1) = osc() * 0.5f;
     }
   }
 
@@ -328,13 +334,18 @@ struct VoiceMementos : App, MIDIMessageHandler {
   }
 
   bool onKeyDown(const Keyboard& k) override {
-    int noteNumber = k.key() - 48 + 23;
-    std::cout << "note number: " << noteNumber << std::endl;
-
     if (k.key() == 'g') {
       generateKeyboard();
       return true;
     }
+    if (k.key() == 'r') {
+      noteLoop = !noteLoop;
+      update = true;
+      return true;
+    }
+
+    int noteNumber = k.key() - 48 + 23;
+    std::cout << "note number: " << noteNumber << std::endl;
 
     // protect the critical data with a lock
     m.lock();
@@ -353,11 +364,16 @@ struct VoiceMementos : App, MIDIMessageHandler {
 };
 
 int main() {
-  AudioDevice dev = AudioDevice::defaultOutput();
-  VoiceMementos app;
-  app.configureAudio(dev, dev.defaultSampleRate(), 512, dev.channelsOutMax(),
-                     dev.channelsInMax());
+  // AudioDevice aggregate = AudioDevice("Apple Inc.: ptk-media-call");
+  AudioDevice aggregate = AudioDevice("Apple Inc.: speaks-bh");
+  aggregate.print();
 
+  VoiceMementos app;
+
+  app.audioDomain()->configure(aggregate, 44100, 1024,
+                               aggregate.channelsOutMax(),
+                               aggregate.channelsInMax());
+  app.audioDomain()->audioIO().print();
   app.start();
 }
 
