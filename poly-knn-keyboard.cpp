@@ -354,7 +354,7 @@ struct VoiceMementos : App, MIDIMessageHandler {
     std::cout << std::endl << "starting app" << std::endl;
     gui << loudnessParam;
     gui << toneParam;
-    gui << onsetParam;
+    //gui << onsetParam;
     gui << peakinessParam;
     gui << sineScaleParam;
     gui.init();
@@ -381,7 +381,7 @@ struct VoiceMementos : App, MIDIMessageHandler {
 
     std::cout << std::endl << "starting notes" << std::endl;
 
-    for (int i = 24; i < 40; i++) {
+    for (int i = 24; i < 39; i++) {
       midiPitchClusters.emplace_back();
       midiPitchClusters.back().init(i);
     }
@@ -415,7 +415,7 @@ struct VoiceMementos : App, MIDIMessageHandler {
   }
 
   bool generateKeyboard() {
-    arma::mat query = {{loudnessParam, toneParam, onsetParam, peakinessParam}};
+    arma::mat query = {{loudnessParam, toneParam, peakinessParam}};
 
     player = nullptr;  // protect memory access in onSound
 
@@ -471,7 +471,7 @@ struct VoiceMementos : App, MIDIMessageHandler {
 
   void onDraw(Graphics& g) override {
     g.clear();
-    pSynth.render(g);
+    //pSynth.render(g);
     g.draw(mesh);
     gui.draw(g);
   }
